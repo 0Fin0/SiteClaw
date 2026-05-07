@@ -24,4 +24,6 @@ Package.resolved
 # Secrets
 .env
 .env.*
+!.env.example
+!**/.env.example
 Secrets.plist

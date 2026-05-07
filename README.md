@@ -49,10 +49,40 @@ xcodebuild -project SiteClaw.xcodeproj -scheme SiteClaw -destination 'platform=m
 xcodebuild -project SiteClaw.xcodeproj -scheme 'SiteClaw iOS' -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
+## Realtime Backend
+
+The repo includes a local backend that creates short-lived OpenAI Realtime client secrets:
+
+```bash
+cd Backend
+cp .env.example .env
+```
+
+Add your `OPENAI_API_KEY` to `Backend/.env`, then from the repo root run:
+
+```bash
+node Backend/server.mjs
+```
+
+Health check:
+
+```bash
+curl http://localhost:8787/health
+```
+
+Create a Realtime client secret:
+
+```bash
+curl -X POST http://localhost:8787/api/realtime/session \
+  -H "Content-Type: application/json" \
+  -d '{"restaurantName":"Pho Lotus Kitchen"}'
+```
+
 ## Next Steps
 
 - Add real restaurant intake fields for menu editing
-- Add real OpenAI Realtime microphone flow through a backend session-token endpoint
+- Wire `RealtimeSessionService` into the Talk tab
+- Add real OpenAI Realtime microphone flow using the backend session-token endpoint
 - Add a backend endpoint for AI generation
 - Add generated-site export or Cloudflare Pages publishing
 - Add collaborators through GitHub after the remote repository is published
