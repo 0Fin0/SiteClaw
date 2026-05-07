@@ -1,0 +1,27 @@
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# App archives and generated output
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.xcarchive
+
+# Secrets
+.env
+.env.*
+Secrets.plist
