@@ -16,6 +16,7 @@ final class SiteClawStudio {
     var voicePrompts: [VoiceOnboardingPrompt]
     var voiceTranscript: String
     var realtimeStatus: String
+    var activeVoicePromptIndex: Int
     var isPublished: Bool
     var isDraftGenerated: Bool
     var monthlyPrice: Int
@@ -29,6 +30,7 @@ final class SiteClawStudio {
         voicePrompts: [VoiceOnboardingPrompt] = VoiceOnboardingPrompt.samples,
         voiceTranscript: String = VoiceOnboardingPrompt.sampleTranscript,
         realtimeStatus: String = "Ready",
+        activeVoicePromptIndex: Int = 0,
         isPublished: Bool = false,
         isDraftGenerated: Bool = true,
         monthlyPrice: Int = 19
@@ -41,6 +43,7 @@ final class SiteClawStudio {
         self.voicePrompts = voicePrompts
         self.voiceTranscript = voiceTranscript
         self.realtimeStatus = realtimeStatus
+        self.activeVoicePromptIndex = activeVoicePromptIndex
         self.isPublished = isPublished
         self.isDraftGenerated = isDraftGenerated
         self.monthlyPrice = monthlyPrice
@@ -58,6 +61,26 @@ final class SiteClawStudio {
         completed += restaurant.menuItems.isEmpty ? 0 : 1
         completed += isDraftGenerated ? 1 : 0
         return Int((Double(completed) / 5.0) * 100)
+    }
+
+    var voiceProgress: Double {
+        guard !voicePrompts.isEmpty else { return 0 }
+        let answered = voicePrompts.filter { !$0.capturedAnswer.isEmpty }.count
+        return Double(answered) / Double(voicePrompts.count)
+    }
+
+    var activeVoicePrompt: VoiceOnboardingPrompt {
+        guard !voicePrompts.isEmpty else {
+            return VoiceOnboardingPrompt.empty
+        }
+
+        let safeIndex = min(max(activeVoicePromptIndex, 0), voicePrompts.count - 1)
+        return voicePrompts[safeIndex]
+    }
+
+    var activeVoiceStepLabel: String {
+        guard !voicePrompts.isEmpty else { return "Step 0 of 0" }
+        return "Step \(min(activeVoicePromptIndex + 1, voicePrompts.count)) of \(voicePrompts.count)"
     }
 
     func generateDraft() {
@@ -128,6 +151,7 @@ final class SiteClawStudio {
         restaurant = RestaurantProfile.sample
         voiceTranscript = VoiceOnboardingPrompt.sampleTranscript
         voicePrompts = VoiceOnboardingPrompt.filledSamples
+        activeVoicePromptIndex = voicePrompts.count - 1
         realtimeStatus = "Captured"
         messages.append(
             BuilderMessage(
@@ -140,6 +164,8 @@ final class SiteClawStudio {
 
     func startRealtimeSession() {
         realtimeStatus = "Listening"
+        activeVoicePromptIndex = 0
+        voicePrompts = VoiceOnboardingPrompt.samples
         messages.append(
             BuilderMessage(
                 role: .assistant,
@@ -152,9 +178,36 @@ final class SiteClawStudio {
         realtimeStatus = "Processing"
     }
 
+    func captureCurrentVoicePrompt() {
+        guard voicePrompts.indices.contains(activeVoicePromptIndex) else { return }
+
+        let answer = VoiceOnboardingPrompt.demoAnswers[activeVoicePromptIndex]
+        voicePrompts[activeVoicePromptIndex].capturedAnswer = answer
+        appendTranscriptAnswer(answer)
+
+        if activeVoicePromptIndex < voicePrompts.count - 1 {
+            activeVoicePromptIndex += 1
+            realtimeStatus = "Listening"
+        } else {
+            realtimeStatus = "Captured"
+        }
+    }
+
+    func previousVoicePrompt() {
+        activeVoicePromptIndex = max(activeVoicePromptIndex - 1, 0)
+    }
+
+    func resetVoiceOnboarding() {
+        voicePrompts = VoiceOnboardingPrompt.samples
+        voiceTranscript = ""
+        realtimeStatus = "Ready"
+        activeVoicePromptIndex = 0
+    }
+
     func processVoiceTranscript() {
         restaurant = RestaurantProfile.sample
         voicePrompts = VoiceOnboardingPrompt.filledSamples
+        activeVoicePromptIndex = voicePrompts.count - 1
         realtimeStatus = "Generated"
         messages.append(BuilderMessage(role: .owner, text: voiceTranscript))
         messages.append(
@@ -164,6 +217,14 @@ final class SiteClawStudio {
             )
         )
         generateDraft()
+    }
+
+    private func appendTranscriptAnswer(_ answer: String) {
+        if voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            voiceTranscript = answer
+        } else if !voiceTranscript.contains(answer) {
+            voiceTranscript += " \(answer)"
+        }
     }
 
     private func addUpdate(type: SiteUpdate.UpdateType, title: String, detail: String, timeLabel: String) {
@@ -280,20 +341,85 @@ extension QuickUpdateTemplate {
 }
 
 extension VoiceOnboardingPrompt {
+    static let empty = VoiceOnboardingPrompt(
+        question: "Ready",
+        helperText: "Start voice onboarding to capture restaurant details.",
+        capturedAnswer: "",
+        systemImage: "mic.fill"
+    )
+
     static let samples: [VoiceOnboardingPrompt] = [
-        VoiceOnboardingPrompt(question: "Restaurant name", capturedAnswer: "", systemImage: "storefront.fill"),
-        VoiceOnboardingPrompt(question: "Cuisine and city", capturedAnswer: "", systemImage: "mappin.and.ellipse"),
-        VoiceOnboardingPrompt(question: "Hours", capturedAnswer: "", systemImage: "clock.fill"),
-        VoiceOnboardingPrompt(question: "Menu highlights", capturedAnswer: "", systemImage: "fork.knife"),
-        VoiceOnboardingPrompt(question: "Restaurant story", capturedAnswer: "", systemImage: "quote.bubble.fill")
+        VoiceOnboardingPrompt(
+            question: "What is your restaurant called?",
+            helperText: "Say the business name the way customers should see it online.",
+            capturedAnswer: "",
+            systemImage: "storefront.fill"
+        ),
+        VoiceOnboardingPrompt(
+            question: "What food do you serve, and where are you located?",
+            helperText: "Cuisine and city help SiteClaw write local SEO copy.",
+            capturedAnswer: "",
+            systemImage: "mappin.and.ellipse"
+        ),
+        VoiceOnboardingPrompt(
+            question: "What are your hours?",
+            helperText: "Customers often look up hours before deciding where to eat.",
+            capturedAnswer: "",
+            systemImage: "clock.fill"
+        ),
+        VoiceOnboardingPrompt(
+            question: "What menu items should we feature?",
+            helperText: "Name a few popular dishes and prices if you know them.",
+            capturedAnswer: "",
+            systemImage: "fork.knife"
+        ),
+        VoiceOnboardingPrompt(
+            question: "What makes your restaurant special?",
+            helperText: "A short owner story makes the site feel trustworthy.",
+            capturedAnswer: "",
+            systemImage: "quote.bubble.fill"
+        )
     ]
 
     static let filledSamples: [VoiceOnboardingPrompt] = [
-        VoiceOnboardingPrompt(question: "Restaurant name", capturedAnswer: "Pho Lotus Kitchen", systemImage: "storefront.fill"),
-        VoiceOnboardingPrompt(question: "Cuisine and city", capturedAnswer: "Vietnamese comfort food in San Jose", systemImage: "mappin.and.ellipse"),
-        VoiceOnboardingPrompt(question: "Hours", capturedAnswer: "Mon-Sat 11 AM-9 PM, Sun 11 AM-7 PM", systemImage: "clock.fill"),
-        VoiceOnboardingPrompt(question: "Menu highlights", capturedAnswer: "House Pho, Lemongrass Chicken Bowl, Spring Rolls", systemImage: "fork.knife"),
-        VoiceOnboardingPrompt(question: "Restaurant story", capturedAnswer: "Family recipes, slow-simmered broth, quick neighborhood lunches", systemImage: "quote.bubble.fill")
+        VoiceOnboardingPrompt(
+            question: "What is your restaurant called?",
+            helperText: "Say the business name the way customers should see it online.",
+            capturedAnswer: "Pho Lotus Kitchen",
+            systemImage: "storefront.fill"
+        ),
+        VoiceOnboardingPrompt(
+            question: "What food do you serve, and where are you located?",
+            helperText: "Cuisine and city help SiteClaw write local SEO copy.",
+            capturedAnswer: "Vietnamese comfort food in San Jose",
+            systemImage: "mappin.and.ellipse"
+        ),
+        VoiceOnboardingPrompt(
+            question: "What are your hours?",
+            helperText: "Customers often look up hours before deciding where to eat.",
+            capturedAnswer: "Mon-Sat 11 AM-9 PM, Sun 11 AM-7 PM",
+            systemImage: "clock.fill"
+        ),
+        VoiceOnboardingPrompt(
+            question: "What menu items should we feature?",
+            helperText: "Name a few popular dishes and prices if you know them.",
+            capturedAnswer: "House Pho, Lemongrass Chicken Bowl, Spring Rolls",
+            systemImage: "fork.knife"
+        ),
+        VoiceOnboardingPrompt(
+            question: "What makes your restaurant special?",
+            helperText: "A short owner story makes the site feel trustworthy.",
+            capturedAnswer: "Family recipes, slow-simmered broth, quick neighborhood lunches",
+            systemImage: "quote.bubble.fill"
+        )
+    ]
+
+    static let demoAnswers = [
+        "We are Pho Lotus Kitchen.",
+        "We serve Vietnamese comfort food in San Jose.",
+        "We are open Monday through Saturday from 11 AM to 9 PM and Sunday from 11 AM to 7 PM.",
+        "Feature house pho for 14.99, lemongrass chicken bowls for 13.49, and spring rolls for 8.99.",
+        "Our story is family recipes, slow-simmered broth, and quick lunches for the neighborhood."
     ]
 
     static let sampleTranscript = "We are Pho Lotus Kitchen, a family-owned Vietnamese restaurant in San Jose. We serve house pho for 14.99, lemongrass chicken bowls for 13.49, and spring rolls for 8.99. We are open Monday through Saturday from 11 AM to 9 PM and Sunday from 11 AM to 7 PM. Our story is family recipes, slow-simmered broth, and quick lunches for the neighborhood."
