@@ -10,6 +10,11 @@ struct SiteClawRootView: View {
 
     var body: some View {
         TabView {
+            TalkToSiteClawView(studio: studio)
+                .tabItem {
+                    Label("Talk", systemImage: "waveform.circle.fill")
+                }
+
             BuilderView(studio: studio)
                 .tabItem {
                     Label("Build", systemImage: "wand.and.stars")

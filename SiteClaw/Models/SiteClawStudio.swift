@@ -13,6 +13,9 @@ final class SiteClawStudio {
     var messages: [BuilderMessage]
     var updates: [SiteUpdate]
     var metrics: [DashboardMetric]
+    var voicePrompts: [VoiceOnboardingPrompt]
+    var voiceTranscript: String
+    var realtimeStatus: String
     var isPublished: Bool
     var isDraftGenerated: Bool
     var monthlyPrice: Int
@@ -23,6 +26,9 @@ final class SiteClawStudio {
         messages: [BuilderMessage],
         updates: [SiteUpdate],
         metrics: [DashboardMetric],
+        voicePrompts: [VoiceOnboardingPrompt] = VoiceOnboardingPrompt.samples,
+        voiceTranscript: String = VoiceOnboardingPrompt.sampleTranscript,
+        realtimeStatus: String = "Ready",
         isPublished: Bool = false,
         isDraftGenerated: Bool = true,
         monthlyPrice: Int = 19
@@ -32,6 +38,9 @@ final class SiteClawStudio {
         self.messages = messages
         self.updates = updates
         self.metrics = metrics
+        self.voicePrompts = voicePrompts
+        self.voiceTranscript = voiceTranscript
+        self.realtimeStatus = realtimeStatus
         self.isPublished = isPublished
         self.isDraftGenerated = isDraftGenerated
         self.monthlyPrice = monthlyPrice
@@ -117,10 +126,41 @@ final class SiteClawStudio {
 
     func loadVoiceExample() {
         restaurant = RestaurantProfile.sample
+        voiceTranscript = VoiceOnboardingPrompt.sampleTranscript
+        voicePrompts = VoiceOnboardingPrompt.filledSamples
+        realtimeStatus = "Captured"
         messages.append(
             BuilderMessage(
                 role: .owner,
                 text: "We are a family-owned Vietnamese restaurant in San Jose. Here is our menu, hours, and story. I need a simple site customers can trust."
+            )
+        )
+        generateDraft()
+    }
+
+    func startRealtimeSession() {
+        realtimeStatus = "Listening"
+        messages.append(
+            BuilderMessage(
+                role: .assistant,
+                text: "Tell me your restaurant name, cuisine, hours, location, story, and three menu items."
+            )
+        )
+    }
+
+    func stopRealtimeSession() {
+        realtimeStatus = "Processing"
+    }
+
+    func processVoiceTranscript() {
+        restaurant = RestaurantProfile.sample
+        voicePrompts = VoiceOnboardingPrompt.filledSamples
+        realtimeStatus = "Generated"
+        messages.append(BuilderMessage(role: .owner, text: voiceTranscript))
+        messages.append(
+            BuilderMessage(
+                role: .assistant,
+                text: "I pulled out the restaurant profile, menu, hours, and local search terms from your voice onboarding."
             )
         )
         generateDraft()
@@ -237,4 +277,24 @@ extension QuickUpdateTemplate {
             systemImage: "megaphone.fill"
         )
     ]
+}
+
+extension VoiceOnboardingPrompt {
+    static let samples: [VoiceOnboardingPrompt] = [
+        VoiceOnboardingPrompt(question: "Restaurant name", capturedAnswer: "", systemImage: "storefront.fill"),
+        VoiceOnboardingPrompt(question: "Cuisine and city", capturedAnswer: "", systemImage: "mappin.and.ellipse"),
+        VoiceOnboardingPrompt(question: "Hours", capturedAnswer: "", systemImage: "clock.fill"),
+        VoiceOnboardingPrompt(question: "Menu highlights", capturedAnswer: "", systemImage: "fork.knife"),
+        VoiceOnboardingPrompt(question: "Restaurant story", capturedAnswer: "", systemImage: "quote.bubble.fill")
+    ]
+
+    static let filledSamples: [VoiceOnboardingPrompt] = [
+        VoiceOnboardingPrompt(question: "Restaurant name", capturedAnswer: "Pho Lotus Kitchen", systemImage: "storefront.fill"),
+        VoiceOnboardingPrompt(question: "Cuisine and city", capturedAnswer: "Vietnamese comfort food in San Jose", systemImage: "mappin.and.ellipse"),
+        VoiceOnboardingPrompt(question: "Hours", capturedAnswer: "Mon-Sat 11 AM-9 PM, Sun 11 AM-7 PM", systemImage: "clock.fill"),
+        VoiceOnboardingPrompt(question: "Menu highlights", capturedAnswer: "House Pho, Lemongrass Chicken Bowl, Spring Rolls", systemImage: "fork.knife"),
+        VoiceOnboardingPrompt(question: "Restaurant story", capturedAnswer: "Family recipes, slow-simmered broth, quick neighborhood lunches", systemImage: "quote.bubble.fill")
+    ]
+
+    static let sampleTranscript = "We are Pho Lotus Kitchen, a family-owned Vietnamese restaurant in San Jose. We serve house pho for 14.99, lemongrass chicken bowls for 13.49, and spring rolls for 8.99. We are open Monday through Saturday from 11 AM to 9 PM and Sunday from 11 AM to 7 PM. Our story is family recipes, slow-simmered broth, and quick lunches for the neighborhood."
 }

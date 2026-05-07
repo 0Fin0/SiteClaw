@@ -74,3 +74,10 @@ struct QuickUpdateTemplate: Identifiable, Hashable {
     var prompt: String
     var systemImage: String
 }
+
+struct VoiceOnboardingPrompt: Identifiable, Hashable {
+    let id = UUID()
+    var question: String
+    var capturedAnswer: String
+    var systemImage: String
+}

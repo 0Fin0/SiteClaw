@@ -6,14 +6,15 @@ The product concept comes from the ISYS 556 SiteClaw project: restaurant owners 
 
 ## Current Prototype
 
-This first version is a macOS SwiftUI app with four main tabs:
+This first version is a SwiftUI app with Mac and iOS targets. It has five main tabs:
 
+- Talk: voice-onboarding prototype for capturing the owner conversation
 - Build: restaurant intake and AI-style onboarding conversation
 - Dashboard: launch readiness, MVP checklist, recent activity, and publish status
 - Preview: generated restaurant website mockup
 - Updates: voice-style quick updates for hours, menus, and announcements
 
-The AI, voice, and deployment behavior is currently simulated so the project runs immediately in Xcode.
+The AI, voice, and deployment behavior is currently simulated so the project runs immediately in Xcode. The Talk tab is designed to be replaced by OpenAI Realtime once a backend can mint short-lived Realtime session tokens.
 
 ## Tech Direction
 
@@ -34,7 +35,10 @@ Open:
 open SiteClaw.xcodeproj
 ```
 
-Then choose the `SiteClaw` scheme and run on `My Mac`.
+Then choose one of these schemes:
+
+- `SiteClaw` to run on `My Mac`
+- `SiteClaw iOS` to run on an iPhone Simulator
 
 ## Build Check
 
@@ -42,12 +46,13 @@ The prototype was verified with:
 
 ```bash
 xcodebuild -project SiteClaw.xcodeproj -scheme SiteClaw -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project SiteClaw.xcodeproj -scheme 'SiteClaw iOS' -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
 ## Next Steps
 
 - Add real restaurant intake fields for menu editing
-- Add real microphone/transcription flow
+- Add real OpenAI Realtime microphone flow through a backend session-token endpoint
 - Add a backend endpoint for AI generation
 - Add generated-site export or Cloudflare Pages publishing
 - Add collaborators through GitHub after the remote repository is published
