@@ -27,6 +27,16 @@ Planned production stack:
 - Astro for generated static restaurant sites
 - Cloudflare Pages for hosting published websites
 
+## Engineering Docs
+
+Carlo's build files are checked in under:
+
+```text
+Docs/engineering/
+```
+
+They define the longer-term architecture around `restaurant.json`, Supabase, pipeline services, Astro rendering, and deployment order. The current SwiftUI prototype is intentionally smaller, but future work should align with those docs, especially the `restaurant.json` contract.
+
 ## Open In Xcode
 
 Open:

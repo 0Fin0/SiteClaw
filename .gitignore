@@ -20,6 +20,7 @@ Package.resolved
 *.dSYM.zip
 *.dSYM
 *.xcarchive
+incoming/
 
 # Secrets
 .env
