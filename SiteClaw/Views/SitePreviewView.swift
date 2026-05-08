@@ -169,8 +169,10 @@ private struct RestaurantWebsiteMock: View {
     var body: some View {
         VStack(spacing: 0) {
             WebsiteHero(studio: studio)
-            WebsiteMenuSection(menuItems: studio.restaurant.menuItems)
-            WebsiteInfoSection(studio: studio)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 0)], spacing: 0) {
+                WebsiteMenuSection(menuItems: studio.restaurant.menuItems)
+                WebsiteInfoSection(studio: studio)
+            }
         }
         .background(.white)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -235,29 +237,42 @@ private struct WebsiteMenuSection: View {
             Text("Featured Menu")
                 .font(.title3.bold())
 
-            ForEach(menuItems) { item in
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.name)
-                            .font(.headline)
-                        Text(item.description)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    Text(item.price, format: .currency(code: "USD"))
-                        .font(.subheadline.weight(.semibold))
+            if menuItems.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Menu not provided yet")
+                        .font(.headline)
+                    Text("Add owner-approved dishes and prices before publishing this section.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.vertical, 4)
+            } else {
+                ForEach(menuItems) { item in
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.name)
+                                .font(.headline)
+                            Text(item.description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
-                if item.id != menuItems.last?.id {
-                    Divider()
+                        Spacer()
+
+                        Text(item.price, format: .currency(code: "USD"))
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .padding(.vertical, 4)
+
+                    if item.id != menuItems.last?.id {
+                        Divider()
+                    }
                 }
             }
         }
         .padding(20)
+        .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
     }
 }
 
@@ -269,14 +284,55 @@ private struct WebsiteInfoSection: View {
             Text("Visit Us")
                 .font(.title3.bold())
 
-            Label(studio.restaurant.neighborhood, systemImage: "mappin.and.ellipse")
-            Label(studio.restaurant.hours, systemImage: "clock")
-            Label(studio.restaurant.phone, systemImage: "phone")
+            ContactFact(
+                title: "Location",
+                value: displayValue(studio.restaurant.neighborhood, fallback: "Location not provided"),
+                systemImage: "mappin.and.ellipse"
+            )
+            ContactFact(
+                title: "Hours",
+                value: displayValue(studio.restaurant.hours, fallback: "Hours not provided"),
+                systemImage: "clock"
+            )
+            ContactFact(
+                title: "Phone",
+                value: displayValue(studio.restaurant.phone, fallback: "Phone not provided"),
+                systemImage: "phone"
+            )
         }
         .font(.subheadline)
         .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(red: 0.98, green: 0.95, blue: 0.88))
+        .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
+        .foregroundStyle(SiteClawTheme.ink)
+        .background(Color(red: 0.99, green: 0.96, blue: 0.88))
+    }
+
+    private func displayValue(_ value: String, fallback: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
+    }
+}
+
+private struct ContactFact: View {
+    let title: String
+    let value: String
+    let systemImage: String
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(SiteClawTheme.ink)
+            }
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(SiteClawTheme.mint)
+        }
+        .labelStyle(.titleAndIcon)
     }
 }
 

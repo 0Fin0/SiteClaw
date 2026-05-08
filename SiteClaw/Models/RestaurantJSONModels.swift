@@ -122,9 +122,8 @@ struct RestaurantJSONBranding: Codable, Hashable, Sendable {
 enum RestaurantJSONExporter {
     static func makeRestaurantJSON(from restaurant: RestaurantProfile, draft: WebsiteDraft) -> RestaurantJSON {
         let name = restaurant.name.isEmpty ? "Unnamed Restaurant" : restaurant.name
-        let city = restaurant.neighborhood.isEmpty ? "San Jose" : restaurant.neighborhood
+        let city = restaurant.neighborhood
         let cuisine = restaurant.cuisine.isEmpty ? "Local Restaurant" : restaurant.cuisine
-        let phone = restaurant.phone.isEmpty ? "(408) 555-0100" : restaurant.phone
 
         return RestaurantJSON(
             schemaVersion: "1.0",
@@ -138,19 +137,19 @@ enum RestaurantJSONExporter {
                     .components(separatedBy: CharacterSet(charactersIn: ",/&"))
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty },
-                priceRange: "$$"
+                priceRange: restaurant.menuItems.isEmpty ? "" : "$$"
             ),
             contact: RestaurantJSONContact(
-                phone: phone,
+                phone: restaurant.phone,
                 address: RestaurantJSONAddress(
-                    street: "123 Main Street",
+                    street: "",
                     city: city,
-                    state: "CA",
-                    zip: "95112",
-                    country: "US"
+                    state: "",
+                    zip: "",
+                    country: ""
                 )
             ),
-            hours: makeHours(),
+            hours: makeHours(from: restaurant.hours),
             menu: makeMenu(from: restaurant.menuItems),
             seo: RestaurantJSONSEO(
                 title: "\(name) | \(cuisine) in \(city)",
@@ -183,7 +182,7 @@ enum RestaurantJSONExporter {
                 name: item.name,
                 description: item.description,
                 price: item.price,
-                dietary: index == 2 ? ["gluten-free"] : [],
+                dietary: [],
                 featured: index == 0,
                 available: true
             )
@@ -198,22 +197,106 @@ enum RestaurantJSONExporter {
                     items: items
                 )
             ],
-            notes: "Prices and availability may change. Contact the restaurant to confirm current menu items."
+            notes: "Only owner-provided menu details are included. Add missing prices, dietary details, and availability before publishing."
         )
     }
 
-    private static func makeHours() -> RestaurantJSONHours {
-        let weekday = [RestaurantJSONTimeRange(open: "11:00", close: "21:00")]
-        let sunday = [RestaurantJSONTimeRange(open: "11:00", close: "19:00")]
+    private static func makeHours(from hoursText: String) -> RestaurantJSONHours {
+        let trimmedHours = hoursText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let empty: [RestaurantJSONTimeRange] = []
+        guard let primaryRange = parseTimeRange(from: trimmedHours) else {
+            return RestaurantJSONHours(
+                monday: empty,
+                tuesday: empty,
+                wednesday: empty,
+                thursday: empty,
+                friday: empty,
+                saturday: empty,
+                sunday: empty
+            )
+        }
+
+        let lowercasedHours = trimmedHours.lowercased()
+        let mondayThroughSaturday = lowercasedHours.contains("mon-sat")
+            || lowercasedHours.contains("monday through saturday")
+            || lowercasedHours.contains("monday to saturday")
+        let everyDay = lowercasedHours.contains("daily")
+            || lowercasedHours.contains("every day")
+            || lowercasedHours.contains("seven days")
+
+        let weekdayRange = mondayThroughSaturday || everyDay ? [primaryRange] : empty
+        let sundayRange = sundayRange(from: trimmedHours) ?? (everyDay ? [primaryRange] : empty)
 
         return RestaurantJSONHours(
-            monday: weekday,
-            tuesday: weekday,
-            wednesday: weekday,
-            thursday: weekday,
-            friday: weekday,
-            saturday: weekday,
-            sunday: sunday
+            monday: weekdayRange,
+            tuesday: weekdayRange,
+            wednesday: weekdayRange,
+            thursday: weekdayRange,
+            friday: weekdayRange,
+            saturday: weekdayRange,
+            sunday: sundayRange
         )
+    }
+
+    private static func sundayRange(from hoursText: String) -> [RestaurantJSONTimeRange]? {
+        guard let sundayRange = hoursText.range(
+            of: #"(Sun|Sunday)[^,.;]*"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) else {
+            return nil
+        }
+
+        return parseTimeRange(from: String(hoursText[sundayRange])).map { [$0] }
+    }
+
+    private static func parseTimeRange(from text: String) -> RestaurantJSONTimeRange? {
+        guard let match = text.range(
+            of: #"(\d{1,2})(?::(\d{2}))?\s*(AM|PM|am|pm)?\s*(?:-|–|to)\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM|am|pm)?"#,
+            options: .regularExpression
+        ) else {
+            return nil
+        }
+
+        let rangeText = String(text[match])
+        let parts = rangeText
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: " to ", with: "-")
+            .components(separatedBy: "-")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        guard parts.count == 2,
+              let open = normalizedTime(parts[0], fallbackPeriod: "AM"),
+              let close = normalizedTime(parts[1], fallbackPeriod: "PM") else {
+            return nil
+        }
+
+        return RestaurantJSONTimeRange(open: open, close: close)
+    }
+
+    private static func normalizedTime(_ value: String, fallbackPeriod: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let hourMatch = trimmed.range(of: #"\d{1,2}"#, options: .regularExpression),
+              var hour = Int(trimmed[hourMatch]) else {
+            return nil
+        }
+
+        var minute = 0
+        if let minuteRange = trimmed.range(of: #"(?<=:)\d{2}"#, options: .regularExpression),
+           let parsedMinute = Int(trimmed[minuteRange]) {
+            minute = parsedMinute
+        }
+
+        let uppercased = trimmed.uppercased()
+        let period = uppercased.contains("AM") || uppercased.contains("PM")
+            ? uppercased
+            : fallbackPeriod
+
+        if period.contains("PM"), hour < 12 {
+            hour += 12
+        } else if period.contains("AM"), hour == 12 {
+            hour = 0
+        }
+
+        return String(format: "%02d:%02d", hour, minute)
     }
 }

@@ -40,13 +40,21 @@ enum GeneratedSiteRenderer {
         let story = escape(data.basics.description)
         let cuisine = escape(data.basics.cuisineType.joined(separator: " / "))
         let address = data.contact.address
-        let addressLine = escape("\(address.street), \(address.city), \(address.state) \(address.zip)")
-        let phone = escape(data.contact.phone)
+        let addressLine = fullAddressLine(from: address)
+        let addressDisplay = escape(addressLine.isEmpty ? "Location not provided yet" : addressLine)
+        let phone = data.contact.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phoneActionHTML = phone.isEmpty
+            ? ""
+            : #"<a class="button secondary" href="tel:\#(escape(phone))">Call \#(escape(phone))</a>"#
+        let phoneCardHTML = phone.isEmpty
+            ? "<p>Phone not provided yet</p>"
+            : #"<p><a href="tel:\#(escape(phone))">\#(escape(phone))</a></p>"#
         let menuHTML = makeMenuHTML(from: data.menu)
         let hoursHTML = makeHoursHTML(from: data.hours)
         let keywords = escape(data.seo.keywords.joined(separator: ", "))
         let primaryColor = sanitizeHexColor(data.branding.primaryColor, fallback: "#0D1A2B")
         let accentColor = sanitizeHexColor(data.branding.accentColor, fallback: "#E84F3C")
+        let callToAction = escape(draft.callToAction.isEmpty ? "View Menu" : draft.callToAction)
 
         return """
         <!doctype html>
@@ -80,7 +88,7 @@ enum GeneratedSiteRenderer {
             }
             a { color: inherit; }
             header {
-              min-height: 78vh;
+              min-height: 64vh;
               display: grid;
               align-items: end;
               color: white;
@@ -106,7 +114,7 @@ enum GeneratedSiteRenderer {
             .hero {
               width: min(1120px, calc(100% - 40px));
               margin: 0 auto;
-              padding: 120px 0 72px;
+              padding: 112px 0 58px;
             }
             .eyebrow {
               margin: 0 0 12px;
@@ -242,8 +250,8 @@ enum GeneratedSiteRenderer {
               <h1>\(restaurantName)</h1>
               <p>\(tagline)</p>
               <div class="actions">
-                <a class="button" href="#menu">View Menu</a>
-                <a class="button secondary" href="tel:\(phone)">Call \(phone)</a>
+                <a class="button" href="#menu">\(callToAction)</a>
+                \(phoneActionHTML)
               </div>
             </div>
           </header>
@@ -271,11 +279,11 @@ enum GeneratedSiteRenderer {
               <div class="info-grid">
                 <div class="info-card">
                   <h3>Address</h3>
-                  <p>\(addressLine)</p>
+                  <p>\(addressDisplay)</p>
                 </div>
                 <div class="info-card">
                   <h3>Phone</h3>
-                  <p><a href="tel:\(phone)">\(phone)</a></p>
+                  \(phoneCardHTML)
                 </div>
                 <div class="info-card" id="hours">
                   <h3>Hours</h3>
@@ -325,7 +333,7 @@ enum GeneratedSiteRenderer {
     }
 
     private static func makeHoursHTML(from hours: RestaurantJSONHours) -> String {
-        [
+        let rows = [
             ("Monday", hours.monday),
             ("Tuesday", hours.tuesday),
             ("Wednesday", hours.wednesday),
@@ -334,32 +342,58 @@ enum GeneratedSiteRenderer {
             ("Saturday", hours.saturday),
             ("Sunday", hours.sunday),
         ]
+        .filter { _, ranges in !ranges.isEmpty }
         .map { day, ranges in
             "<li><span>\(day)</span><strong>\(escape(formatHours(ranges)))</strong></li>"
         }
         .joined(separator: "\n")
+
+        return rows.isEmpty
+            ? "<li><span>Hours</span><strong>Not provided yet</strong></li>"
+            : rows
     }
 
     private static func makeStructuredData(from data: RestaurantJSON, slug: String) -> String {
         let address = data.contact.address
-        let structuredData: [String: Any] = [
+        var structuredData: [String: Any] = [
             "@context": "https://schema.org",
             "@type": "Restaurant",
             "name": data.basics.name,
             "description": data.basics.description,
             "servesCuisine": data.basics.cuisineType,
-            "priceRange": data.basics.priceRange,
-            "telephone": data.contact.phone,
             "url": "https://\(slug).siteclaw.app",
-            "address": [
-                "@type": "PostalAddress",
-                "streetAddress": address.street,
-                "addressLocality": address.city,
-                "addressRegion": address.state,
-                "postalCode": address.zip,
-                "addressCountry": address.country,
-            ],
         ]
+
+        let priceRange = data.basics.priceRange.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !priceRange.isEmpty {
+            structuredData["priceRange"] = priceRange
+        }
+
+        let phone = data.contact.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !phone.isEmpty {
+            structuredData["telephone"] = phone
+        }
+
+        var structuredAddress: [String: String] = [
+            "@type": "PostalAddress",
+        ]
+        let addressFields = [
+            "streetAddress": address.street,
+            "addressLocality": address.city,
+            "addressRegion": address.state,
+            "postalCode": address.zip,
+            "addressCountry": address.country,
+        ]
+        for (key, value) in addressFields {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                structuredAddress[key] = trimmed
+            }
+        }
+
+        if structuredAddress.count > 1 {
+            structuredData["address"] = structuredAddress
+        }
 
         guard JSONSerialization.isValidJSONObject(structuredData),
               let jsonData = try? JSONSerialization.data(withJSONObject: structuredData, options: [.prettyPrinted, .sortedKeys]),
@@ -371,9 +405,31 @@ enum GeneratedSiteRenderer {
     }
 
     private static func formatHours(_ ranges: [RestaurantJSONTimeRange]) -> String {
-        guard !ranges.isEmpty else { return "Closed" }
+        guard !ranges.isEmpty else { return "Not provided yet" }
         return ranges
-            .map { "\($0.open)-\($0.close)" }
+            .map { range in
+                range.close.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? range.open
+                    : "\(range.open)-\(range.close)"
+            }
+            .joined(separator: ", ")
+    }
+
+    private static func fullAddressLine(from address: RestaurantJSONAddress) -> String {
+        let cityStateZip = [
+            address.city,
+            [address.state, address.zip]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " "),
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+
+        return [address.street, cityStateZip, address.country]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
             .joined(separator: ", ")
     }
 

@@ -565,7 +565,7 @@ extension RestaurantProfile {
         cuisine: "Vietnamese comfort food",
         neighborhood: "San Jose",
         ownerName: "Mai Nguyen",
-        phone: "(408) 555-0148",
+        phone: "",
         hours: "Mon-Sat 11 AM-9 PM, Sun 11 AM-7 PM",
         story: "Family recipes, slow-simmered broth, and quick lunches for the neighborhood.",
         menuItems: [

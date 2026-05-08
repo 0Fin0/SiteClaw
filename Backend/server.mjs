@@ -172,6 +172,7 @@ async function generateWebsiteDraft(body) {
                         "You are SiteClaw's website copy generator for local restaurants.",
                         "Generate concise, credible website copy from owner-provided restaurant data.",
                         "Do not invent addresses, phone numbers, prices, awards, or delivery partners.",
+                        "If a fact is missing, omit it or use neutral copy; never use placeholder facts like 123 Main Street, 555 phone numbers, fake hours, or made-up menu prices.",
                         "Keep the tone polished and useful for a busy local restaurant owner.",
                     ].join(" "),
                 },
