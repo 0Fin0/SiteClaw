@@ -712,11 +712,18 @@ private enum TranscriptRestaurantExtractor {
 
         guard let candidate = candidates.first else { return "" }
 
-        return candidate
+        let cleaned = candidate
             .replacingOccurrences(of: #"\b(?:we are|we're|we)\s+open\b"#, with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\b(?:hours are|our hours are|open|from)\b"#, with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(
+                of: #"\s+\b(?:what makes|what make|our story|what is special|makes us special|special is)\b.*$"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return cleaned
     }
 
     private static func extractMenuItems(from transcript: String) -> [MenuItem] {
