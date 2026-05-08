@@ -96,7 +96,6 @@ async function createRealtimeClientSecret(body) {
                     transcription: {
                         model: realtimeTranscriptionModel(),
                         language: "en",
-                        prompt: "Restaurant names, cuisines, neighborhoods, business hours, menu item names, prices, and owner stories.",
                     },
                     turn_detection: {
                         type: "server_vad",
