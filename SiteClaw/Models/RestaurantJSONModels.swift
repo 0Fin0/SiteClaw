@@ -124,6 +124,7 @@ enum RestaurantJSONExporter {
         let name = restaurant.name.isEmpty ? "Unnamed Restaurant" : restaurant.name
         let city = restaurant.neighborhood
         let cuisine = restaurant.cuisine.isEmpty ? "Local Restaurant" : restaurant.cuisine
+        let hasOwnerProvidedPrices = restaurant.menuItems.contains { ($0.price ?? 0) > 0 }
 
         return RestaurantJSON(
             schemaVersion: "1.0",
@@ -137,7 +138,7 @@ enum RestaurantJSONExporter {
                     .components(separatedBy: CharacterSet(charactersIn: ",/&"))
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty },
-                priceRange: restaurant.menuItems.isEmpty ? "" : "$$"
+                priceRange: hasOwnerProvidedPrices ? "$$" : ""
             ),
             contact: RestaurantJSONContact(
                 phone: restaurant.phone,

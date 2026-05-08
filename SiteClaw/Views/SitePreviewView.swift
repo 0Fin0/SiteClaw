@@ -275,6 +275,8 @@ private struct WebsiteMenuSection: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .foregroundStyle(SiteClawTheme.ink)
+        .background(.white)
     }
 
     private func priceLabel(for item: MenuItem) -> String {

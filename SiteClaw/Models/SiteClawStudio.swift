@@ -630,7 +630,10 @@ private enum TranscriptRestaurantExtractor {
         var normalized = transcript
             .replacingOccurrences(of: #"faux rice bowls"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"fo rice bowls"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"fo lotus"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"phone lotus"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\ba\.?\s*m\.?"#, with: "AM", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bp\.?\s*m\.?"#, with: "PM", options: [.regularExpression, .caseInsensitive])
 
         for (word, number) in numberWords {
             normalized = normalized.replacingOccurrences(
@@ -645,9 +648,9 @@ private enum TranscriptRestaurantExtractor {
 
     private static func extractName(from transcript: String) -> String {
         let patterns = [
-            #"\bcalled\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+we\s+|\s+we're\s+|\s+open\s+|\s+serve\s+|\s+serves\s+|$)"#,
-            #"\b(?:we are|we're|my restaurant is|the restaurant is)\s+([A-Za-z0-9&' .-]{2,80}?)(?=,|\.|\s+in\s+|\s+serves\s+|\s+serve\s+|\s+is\s+|$)"#,
-            #"\b([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){1,5}\s+(?:Kitchen|Cafe|Coffee|Bakery|Grill|Restaurant|Diner|Bistro|Taqueria|Pizzeria|Bar))\b"#
+            #"\b(?:called|named)\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+we\s+|\s+we're\s+|\s+open\s+|\s+serve\s+|\s+serves\s+|$)"#,
+            #"\b([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){1,5}\s+(?:Kitchen|Cafe|Coffee|Bakery|Grill|Restaurant|Diner|Bistro|Taqueria|Pizzeria|Bar))\b"#,
+            #"\b(?:we are|we're|my restaurant is|the restaurant is)\s+([A-Za-z0-9&' .-]{2,80}?)(?=,|\.|\s+in\s+|\s+serves\s+|\s+serve\s+|\s+is\s+|$)"#
         ]
 
         for pattern in patterns {
@@ -815,12 +818,15 @@ private enum TranscriptRestaurantExtractor {
         let trimmed = candidate
             .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".:;")))
         let lowercased = trimmed.lowercased()
+        let invalidNameWords = [
+            "open", "hour", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+            "sunday", "from", " am", " pm", "restaurant in", "family owned", "family-owned"
+        ]
 
         guard !trimmed.isEmpty,
               !lowercased.hasPrefix("a "),
               !lowercased.hasPrefix("an "),
-              !lowercased.contains("family owned"),
-              !lowercased.contains("family-owned"),
+              !invalidNameWords.contains(where: lowercased.contains),
               lowercased != "restaurant" else {
             return nil
         }
