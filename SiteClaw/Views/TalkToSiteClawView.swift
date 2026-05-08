@@ -128,8 +128,11 @@ private struct VoiceHeroCard: View {
 
         let restaurantName = studio.restaurant.name
         sessionTask = Task {
+            var sessionWasCreated = false
+
             do {
                 let response = try await RealtimeSessionService().createSession(restaurantName: restaurantName)
+                sessionWasCreated = true
                 guard !Task.isCancelled else { return }
 
                 let streamer = await MainActor.run {
@@ -159,7 +162,12 @@ private struct VoiceHeroCard: View {
                     isListening = false
                     realtimeAudioStreamer?.stop()
                     realtimeAudioStreamer = nil
-                    studio.failRealtimeSession(error)
+
+                    if sessionWasCreated {
+                        studio.failRealtimeAudioStream(error)
+                    } else {
+                        studio.failRealtimeSession(error)
+                    }
                 }
             }
         }

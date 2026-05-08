@@ -33,6 +33,7 @@ enum RealtimeAudioStreamingError: LocalizedError {
     case unavailableInputFormat
     case audioConversionFailed
     case websocketUnavailable
+    case realtimeServerError(String)
 
     var errorDescription: String? {
         switch self {
@@ -48,6 +49,8 @@ enum RealtimeAudioStreamingError: LocalizedError {
             "SiteClaw could not convert microphone audio to 24 kHz PCM16."
         case .websocketUnavailable:
             "The Realtime WebSocket was not available."
+        case .realtimeServerError(let message):
+            message
         }
     }
 }
@@ -171,7 +174,6 @@ final class RealtimeAudioStreamingService {
                         "transcription": [
                             "model": resolvedTranscriptionModel,
                             "language": "en",
-                            "prompt": "Restaurant names, cuisines, neighborhoods, business hours, menu item names, prices, and owner stories.",
                         ],
                         "turn_detection": [
                             "type": "server_vad",
@@ -266,10 +268,14 @@ final class RealtimeAudioStreamingService {
 
             switch message {
             case .string(let text):
-                handleServerEvent(text, onEvent: onEvent)
+                if let error = handleServerEvent(text, onEvent: onEvent) {
+                    throw error
+                }
             case .data(let data):
                 if let text = String(data: data, encoding: .utf8) {
-                    handleServerEvent(text, onEvent: onEvent)
+                    if let error = handleServerEvent(text, onEvent: onEvent) {
+                        throw error
+                    }
                 }
             @unknown default:
                 continue
@@ -340,11 +346,14 @@ final class RealtimeAudioStreamingService {
         onEvent(.audioLevel(level))
     }
 
-    private func handleServerEvent(_ text: String, onEvent: (RealtimeAudioStreamingEvent) -> Void) {
+    private func handleServerEvent(
+        _ text: String,
+        onEvent: (RealtimeAudioStreamingEvent) -> Void
+    ) -> RealtimeAudioStreamingError? {
         guard let data = text.data(using: .utf8),
               let event = try? JSONDecoder().decode(RealtimeServerEvent.self, from: data)
         else {
-            return
+            return nil
         }
 
         switch event.type {
@@ -369,10 +378,14 @@ final class RealtimeAudioStreamingService {
         case "response.done":
             onEvent(.responseCompleted)
         case "error":
-            onEvent(.error(event.error?.message ?? "OpenAI Realtime returned an error."))
+            let message = event.error?.message ?? "OpenAI Realtime returned an error."
+            onEvent(.error(message))
+            return .realtimeServerError(message)
         default:
             break
         }
+
+        return nil
     }
 
     nonisolated private static func makePCM16Data(from buffer: AVAudioPCMBuffer) throws -> Data {

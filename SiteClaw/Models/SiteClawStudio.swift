@@ -410,6 +410,20 @@ final class SiteClawStudio {
         )
     }
 
+    func failRealtimeAudioStream(_ error: Error) {
+        realtimeStatus = "Realtime Error"
+        realtimeConnectionDetail = error.localizedDescription
+        realtimeAudioLevel = 0
+        realtimeStreamedAudioBytes = 0
+        realtimeAssistantReplyDraft = ""
+        messages.append(
+            BuilderMessage(
+                role: .assistant,
+                text: "Realtime connected, but the live audio stream stopped with an error: \(error.localizedDescription)"
+            )
+        )
+    }
+
     func captureCurrentVoicePrompt() {
         guard voicePrompts.indices.contains(activeVoicePromptIndex) else { return }
 
