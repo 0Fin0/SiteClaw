@@ -108,7 +108,7 @@ struct SiteGenerationRestaurant: Encodable, Sendable {
         phone = profile.phone
         hours = profile.hours
         story = profile.story
-        menuItems = profile.menuItems.map(SiteGenerationMenuItem.init)
+        menuItems = profile.menuItems.map { SiteGenerationMenuItem(item: $0) }
     }
 
     enum CodingKeys: String, CodingKey {
@@ -126,7 +126,7 @@ struct SiteGenerationRestaurant: Encodable, Sendable {
 struct SiteGenerationMenuItem: Encodable, Sendable {
     var name: String
     var description: String
-    var price: Double
+    var price: Double?
 
     init(item: MenuItem) {
         name = item.name

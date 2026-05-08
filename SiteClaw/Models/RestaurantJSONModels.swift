@@ -95,7 +95,7 @@ struct RestaurantJSONMenuCategory: Codable, Hashable, Sendable {
 struct RestaurantJSONMenuItem: Codable, Hashable, Sendable {
     var name: String
     var description: String
-    var price: Double
+    var price: Double?
     var dietary: [String]
     var featured: Bool
     var available: Bool
@@ -180,7 +180,9 @@ enum RestaurantJSONExporter {
         let items = menuItems.enumerated().map { index, item in
             RestaurantJSONMenuItem(
                 name: item.name,
-                description: item.description,
+                description: item.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Owner-provided menu item."
+                    : item.description,
                 price: item.price,
                 dietary: [],
                 featured: index == 0,

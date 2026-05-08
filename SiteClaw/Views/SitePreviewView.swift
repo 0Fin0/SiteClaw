@@ -169,8 +169,9 @@ private struct RestaurantWebsiteMock: View {
     var body: some View {
         VStack(spacing: 0) {
             WebsiteHero(studio: studio)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 0)], spacing: 0) {
+            VStack(spacing: 0) {
                 WebsiteMenuSection(menuItems: studio.restaurant.menuItems)
+                Divider()
                 WebsiteInfoSection(studio: studio)
             }
         }
@@ -260,8 +261,9 @@ private struct WebsiteMenuSection: View {
 
                         Spacer()
 
-                        Text(item.price, format: .currency(code: "USD"))
+                        Text(priceLabel(for: item))
                             .font(.subheadline.weight(.semibold))
+                            .foregroundStyle((item.price ?? 0) > 0 ? SiteClawTheme.coral : .secondary)
                     }
                     .padding(.vertical, 4)
 
@@ -272,7 +274,15 @@ private struct WebsiteMenuSection: View {
             }
         }
         .padding(20)
-        .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func priceLabel(for item: MenuItem) -> String {
+        guard let price = item.price, price > 0 else {
+            return "Price TBD"
+        }
+
+        return price.formatted(.currency(code: "USD"))
     }
 }
 
@@ -302,7 +312,7 @@ private struct WebsiteInfoSection: View {
         }
         .font(.subheadline)
         .padding(20)
-        .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .foregroundStyle(SiteClawTheme.ink)
         .background(Color(red: 0.99, green: 0.96, blue: 0.88))
     }

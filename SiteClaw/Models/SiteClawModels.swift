@@ -20,7 +20,7 @@ struct MenuItem: Identifiable, Hashable {
     let id = UUID()
     var name: String
     var description: String
-    var price: Double
+    var price: Double?
 }
 
 struct WebsiteDraft: Hashable {

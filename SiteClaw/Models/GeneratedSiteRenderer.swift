@@ -433,8 +433,12 @@ enum GeneratedSiteRenderer {
             .joined(separator: ", ")
     }
 
-    private static func formatPrice(_ price: Double) -> String {
-        String(format: "$%.2f", price)
+    private static func formatPrice(_ price: Double?) -> String {
+        guard let price, price > 0 else {
+            return "Price TBD"
+        }
+
+        return String(format: "$%.2f", price)
     }
 
     private static func slug(for name: String) -> String {

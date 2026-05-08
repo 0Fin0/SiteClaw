@@ -398,6 +398,13 @@ private struct VoiceActionPanel: View {
     private func generateWebsiteDraft() {
         generationTask?.cancel()
         isGeneratingDraft = true
+
+        guard studio.applyVoiceTranscriptToProfile() else {
+            generationMessage = "Record or type restaurant details before generating a website draft."
+            isGeneratingDraft = false
+            return
+        }
+
         generationMessage = "Requesting AI website copy from the local backend."
 
         let request = SiteGenerationRequest(studio: studio)
