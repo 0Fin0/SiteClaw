@@ -179,11 +179,11 @@ enum RestaurantJSONExporter {
 
     private static func makeMenu(from menuItems: [MenuItem]) -> RestaurantJSONMenu {
         let items = menuItems.enumerated().map { index, item in
-            RestaurantJSONMenuItem(
+            let description = item.description.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            return RestaurantJSONMenuItem(
                 name: item.name,
-                description: item.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? "Owner-provided menu item."
-                    : item.description,
+                description: description,
                 price: item.price,
                 dietary: [],
                 featured: index == 0,

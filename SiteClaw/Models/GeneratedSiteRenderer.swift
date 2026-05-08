@@ -50,7 +50,10 @@ enum GeneratedSiteRenderer {
             ? "<p>Phone not provided yet</p>"
             : #"<p><a href="tel:\#(escape(phone))">\#(escape(phone))</a></p>"#
         let menuHTML = makeMenuHTML(from: data.menu)
+        let menuCount = data.menu.categories.flatMap(\.items).count
+        let menuSummary = menuCount == 0 ? "Menu details coming soon" : "\(menuCount) owner-provided menu highlights"
         let hoursHTML = makeHoursHTML(from: data.hours)
+        let hoursSummary = escape(makeHoursSummary(from: data.hours))
         let keywords = escape(data.seo.keywords.joined(separator: ", "))
         let primaryColor = sanitizeHexColor(data.branding.primaryColor, fallback: "#0D1A2B")
         let accentColor = sanitizeHexColor(data.branding.accentColor, fallback: "#E84F3C")
@@ -160,6 +163,32 @@ enum GeneratedSiteRenderer {
               color: white;
               border: 1px solid rgba(255, 255, 255, 0.28);
             }
+            .fact-strip {
+              display: grid;
+              grid-template-columns: repeat(3, minmax(0, 1fr));
+              gap: 12px;
+              width: min(1120px, calc(100% - 40px));
+              margin: -34px auto 0;
+              position: relative;
+              z-index: 2;
+            }
+            .fact {
+              min-height: 92px;
+              padding: 16px;
+              border-radius: 8px;
+              background: white;
+              border: 1px solid var(--line);
+              box-shadow: 0 18px 42px rgba(13, 26, 43, 0.10);
+            }
+            .fact span {
+              display: block;
+              margin-bottom: 6px;
+              color: var(--muted);
+              font-size: 0.78rem;
+              font-weight: 800;
+              text-transform: uppercase;
+            }
+            .fact strong { font-size: 1rem; }
             main {
               width: min(1120px, calc(100% - 40px));
               margin: 0 auto;
@@ -180,18 +209,47 @@ enum GeneratedSiteRenderer {
             .lead { color: var(--muted); font-size: 1.08rem; }
             .menu-grid {
               display: grid;
-              gap: 14px;
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+              gap: 16px;
             }
             .menu-item {
-              display: grid;
-              grid-template-columns: minmax(0, 1fr) auto;
-              gap: 18px;
-              padding: 18px 0;
-              border-bottom: 1px solid var(--line);
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+              gap: 12px;
+              min-height: 164px;
+              padding: 18px;
+              border: 1px solid var(--line);
+              border-radius: 8px;
+              background: white;
+              box-shadow: 0 16px 34px rgba(13, 26, 43, 0.06);
+            }
+            .item-top {
+              display: flex;
+              align-items: start;
+              justify-content: space-between;
+              gap: 16px;
             }
             .menu-item h3 { margin: 0 0 4px; font-size: 1.08rem; }
             .menu-item p { margin: 0; color: var(--muted); }
             .price { font-weight: 900; color: var(--accent); }
+            .detail-badge {
+              display: inline-flex;
+              align-items: center;
+              min-height: 30px;
+              padding: 0 10px;
+              border-radius: 8px;
+              background: rgba(248, 201, 90, 0.18);
+              color: #7A4B00;
+              font-weight: 900;
+              white-space: nowrap;
+            }
+            .missing-copy { color: #7A4B00 !important; }
+            .item-note {
+              padding-top: 12px;
+              border-top: 1px solid var(--line);
+              font-size: 0.85rem;
+            }
             .info-grid {
               display: grid;
               grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -227,8 +285,8 @@ enum GeneratedSiteRenderer {
             @media (max-width: 760px) {
               nav .links { display: none; }
               header { min-height: 72vh; }
-              .split, .info-grid { grid-template-columns: 1fr; }
-              .menu-item { grid-template-columns: 1fr; gap: 8px; }
+              .split, .info-grid, .menu-grid, .fact-strip { grid-template-columns: 1fr; }
+              .fact-strip { margin-top: -22px; }
             }
           </style>
           <script type="application/ld+json">
@@ -255,6 +313,21 @@ enum GeneratedSiteRenderer {
               </div>
             </div>
           </header>
+
+          <div class="fact-strip">
+            <div class="fact">
+              <span>Location</span>
+              <strong>\(addressDisplay)</strong>
+            </div>
+            <div class="fact">
+              <span>Hours</span>
+              <strong>\(hoursSummary)</strong>
+            </div>
+            <div class="fact">
+              <span>Menu</span>
+              <strong>\(escape(menuSummary))</strong>
+            </div>
+          </div>
 
           <main>
             <section class="split">
@@ -319,13 +392,27 @@ enum GeneratedSiteRenderer {
         }
 
         return items.map { item in
-            """
+            let description = item.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasDescription = !description.isEmpty
+            let hasPrice = (item.price ?? 0) > 0
+            let descriptionHTML = hasDescription
+                ? "<p>\(escape(description))</p>"
+                : #"<p class="missing-copy">Description not captured yet.</p>"#
+            let priceHTML = hasPrice
+                ? #"<strong class="price">\#(formatPrice(item.price))</strong>"#
+                : #"<span class="detail-badge">Price not listed</span>"#
+            let note = hasDescription && hasPrice
+                ? "Owner-approved menu detail."
+                : "Draft detail needed before publishing."
+
+            return """
             <div class="menu-item">
-              <div>
+              <div class="item-top">
                 <h3>\(escape(item.name))</h3>
-                <p>\(escape(item.description))</p>
+                \(priceHTML)
               </div>
-              <div class="price">\(formatPrice(item.price))</div>
+              \(descriptionHTML)
+              <p class="item-note">\(note)</p>
             </div>
             """
         }
@@ -409,10 +496,53 @@ enum GeneratedSiteRenderer {
         return ranges
             .map { range in
                 range.close.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? range.open
-                    : "\(range.open)-\(range.close)"
+                    ? formatTime(range.open)
+                    : "\(formatTime(range.open)) to \(formatTime(range.close))"
             }
             .joined(separator: ", ")
+    }
+
+    private static func makeHoursSummary(from hours: RestaurantJSONHours) -> String {
+        let weekdayRanges = [
+            hours.monday,
+            hours.tuesday,
+            hours.wednesday,
+            hours.thursday,
+            hours.friday,
+            hours.saturday,
+        ]
+
+        if let first = weekdayRanges.first, !first.isEmpty, weekdayRanges.allSatisfy({ $0 == first }) {
+            return "Mon-Sat \(formatHours(first))"
+        }
+
+        if let firstOpenDay = weekdayRanges.first(where: { !$0.isEmpty }) {
+            return formatHours(firstOpenDay)
+        }
+
+        if !hours.sunday.isEmpty {
+            return "Sunday \(formatHours(hours.sunday))"
+        }
+
+        return "Hours not provided yet"
+    }
+
+    private static func formatTime(_ value: String) -> String {
+        let parts = value.split(separator: ":")
+        guard let first = parts.first,
+              let hour = Int(first) else {
+            return value
+        }
+
+        let minute = parts.dropFirst().first.flatMap { Int($0) } ?? 0
+        let period = hour >= 12 ? "PM" : "AM"
+        let displayHour = hour % 12 == 0 ? 12 : hour % 12
+
+        if minute == 0 {
+            return "\(displayHour) \(period)"
+        }
+
+        return String(format: "%d:%02d %@", displayHour, minute, period)
     }
 
     private static func fullAddressLine(from address: RestaurantJSONAddress) -> String {
