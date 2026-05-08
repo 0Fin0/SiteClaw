@@ -593,6 +593,47 @@ private struct TranscriptRestaurantExtraction {
     var promptAnswers: [String]
 }
 
+enum VoiceTranscriptNormalizer {
+    static func normalize(_ transcript: String) -> String {
+        var normalized = transcript
+            .replacingOccurrences(of: #"\bfaux rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bfo rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bfoh rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bfah rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bfa rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bpho rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bfo lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bphone lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\ba\.?\s*m\.?"#, with: "AM", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bp\.?\s*m\.?"#, with: "PM", options: [.regularExpression, .caseInsensitive])
+
+        for (word, number) in numberWords {
+            normalized = normalized.replacingOccurrences(
+                of: "\\b\(word)\\b",
+                with: number,
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+
+        return normalized
+    }
+
+    private static let numberWords = [
+        "one": "1",
+        "two": "2",
+        "three": "3",
+        "four": "4",
+        "five": "5",
+        "six": "6",
+        "seven": "7",
+        "eight": "8",
+        "nine": "9",
+        "ten": "10",
+        "eleven": "11",
+        "twelve": "12"
+    ]
+}
+
 private enum TranscriptRestaurantExtractor {
     static func extract(from transcript: String) -> TranscriptRestaurantExtraction {
         let normalizedTranscript = normalizeTranscript(transcript)
@@ -638,23 +679,7 @@ private enum TranscriptRestaurantExtractor {
     }
 
     private static func normalizeTranscript(_ transcript: String) -> String {
-        var normalized = transcript
-            .replacingOccurrences(of: #"faux rice bowls"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
-            .replacingOccurrences(of: #"fo rice bowls"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
-            .replacingOccurrences(of: #"fo lotus"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
-            .replacingOccurrences(of: #"phone lotus"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
-            .replacingOccurrences(of: #"\ba\.?\s*m\.?"#, with: "AM", options: [.regularExpression, .caseInsensitive])
-            .replacingOccurrences(of: #"\bp\.?\s*m\.?"#, with: "PM", options: [.regularExpression, .caseInsensitive])
-
-        for (word, number) in numberWords {
-            normalized = normalized.replacingOccurrences(
-                of: "\\b\(word)\\b",
-                with: number,
-                options: [.regularExpression, .caseInsensitive]
-            )
-        }
-
-        return normalized
+        VoiceTranscriptNormalizer.normalize(transcript)
     }
 
     private static func extractName(from transcript: String) -> String {
@@ -919,20 +944,6 @@ private enum TranscriptRestaurantExtractor {
         }
     }
 
-    private static let numberWords = [
-        "one": "1",
-        "two": "2",
-        "three": "3",
-        "four": "4",
-        "five": "5",
-        "six": "6",
-        "seven": "7",
-        "eight": "8",
-        "nine": "9",
-        "ten": "10",
-        "eleven": "11",
-        "twelve": "12"
-    ]
 }
 
 extension RestaurantProfile {

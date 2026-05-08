@@ -76,7 +76,7 @@ struct SiteGenerationRequest: Encodable, Sendable {
     var restaurantJSON: RestaurantJSON
 
     init(studio: SiteClawStudio) {
-        transcript = studio.voiceTranscript
+        transcript = VoiceTranscriptNormalizer.normalize(studio.voiceTranscript)
         restaurant = SiteGenerationRestaurant(profile: studio.restaurant)
         draft = SiteGenerationDraft(draft: studio.draft)
         restaurantJSON = studio.restaurantJSON
