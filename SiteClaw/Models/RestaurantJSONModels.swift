@@ -148,11 +148,11 @@ enum RestaurantJSONExporter {
             contact: RestaurantJSONContact(
                 phone: restaurant.phone,
                 address: RestaurantJSONAddress(
-                    street: "",
+                    street: restaurant.streetAddress,
                     city: city,
-                    state: "",
-                    zip: "",
-                    country: ""
+                    state: restaurant.state,
+                    zip: restaurant.postalCode,
+                    country: restaurant.streetAddress.isEmpty && restaurant.state.isEmpty && restaurant.postalCode.isEmpty ? "" : "US"
                 )
             ),
             hours: makeHours(from: restaurant.hours),

@@ -9,6 +9,9 @@ struct RestaurantProfile: Hashable {
     var name: String
     var cuisine: String
     var neighborhood: String
+    var streetAddress: String = ""
+    var state: String = ""
+    var postalCode: String = ""
     var ownerName: String
     var phone: String
     var hours: String
@@ -75,10 +78,29 @@ struct QuickUpdateTemplate: Identifiable, Hashable {
     var systemImage: String
 }
 
+enum MissingDetailKind: String, Hashable {
+    case restaurantName
+    case menuPrices
+    case dishDescriptions
+    case phone
+    case address
+}
+
+struct MissingDetail: Identifiable, Hashable {
+    var id: MissingDetailKind { kind }
+    var kind: MissingDetailKind
+    var title: String
+    var detail: String
+    var prompt: String
+    var systemImage: String
+    var isOptional: Bool
+}
+
 struct VoiceOnboardingPrompt: Identifiable, Hashable {
     let id = UUID()
     var question: String
     var helperText: String
     var capturedAnswer: String
     var systemImage: String
+    var missingDetailKind: MissingDetailKind? = nil
 }

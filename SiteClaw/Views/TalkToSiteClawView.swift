@@ -16,6 +16,7 @@ struct TalkToSiteClawView: View {
                     VoiceHeroCard(studio: studio, isListening: $isListening)
                     GuidedQuestionCard(studio: studio)
                     CapturedDetailsList(prompts: studio.voicePrompts)
+                    MissingDetailsPanel(studio: studio)
                     TranscriptEditor(studio: studio)
                     VoiceActionPanel(studio: studio)
                 }
@@ -338,6 +339,108 @@ private struct CapturedDetailsList: View {
         if question.contains("hours") { return "Hours" }
         if question.contains("menu") { return "Menu Highlights" }
         return "Owner Story"
+    }
+}
+
+private struct MissingDetailsPanel: View {
+    @Bindable var studio: SiteClawStudio
+
+    var body: some View {
+        VStack(spacing: 12) {
+            SectionHeader(
+                title: "Missing Details",
+                subtitle: "SiteClaw asks for only the fields still missing from the draft."
+            )
+
+            ClawCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(studio.missingDetails.isEmpty ? "Ready for owner review" : "Next details to capture")
+                                .font(.headline)
+                            Text(statusText)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer()
+
+                        Label(studio.missingDetailsProgressLabel, systemImage: "checklist")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(SiteClawTheme.mint)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(SiteClawTheme.mint.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+
+                    if !studio.missingDetails.isEmpty {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 10)], spacing: 10) {
+                            ForEach(studio.missingDetails) { detail in
+                                MissingDetailTile(detail: detail)
+                            }
+                        }
+
+                        Button {
+                            studio.focusNextMissingDetail()
+                        } label: {
+                            Label("Ask Next Missing Detail", systemImage: "arrow.right.circle.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(SiteClawTheme.navy)
+                    }
+                }
+            }
+        }
+    }
+
+    private var statusText: String {
+        if studio.missingDetails.isEmpty {
+            return "The profile has the tracked basics SiteClaw needs for a fuller draft."
+        }
+
+        let next = studio.missingDetails[0]
+        return "Next: \(next.title). \(next.detail)"
+    }
+}
+
+private struct MissingDetailTile: View {
+    let detail: MissingDetail
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: detail.systemImage)
+                .foregroundStyle(detail.isOptional ? SiteClawTheme.gold : SiteClawTheme.coral)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(detail.title)
+                        .font(.headline)
+                    if detail.isOptional {
+                        Text("Optional")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(SiteClawTheme.gold)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(SiteClawTheme.gold.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                }
+                Text(detail.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 86, alignment: .topLeading)
+        .background((detail.isOptional ? SiteClawTheme.gold : SiteClawTheme.coral).opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 

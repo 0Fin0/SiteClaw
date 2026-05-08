@@ -94,6 +94,9 @@ struct SiteGenerationRestaurant: Encodable, Sendable {
     var name: String
     var cuisine: String
     var neighborhood: String
+    var streetAddress: String
+    var state: String
+    var postalCode: String
     var ownerName: String
     var phone: String
     var hours: String
@@ -104,6 +107,9 @@ struct SiteGenerationRestaurant: Encodable, Sendable {
         name = profile.name
         cuisine = profile.cuisine
         neighborhood = profile.neighborhood
+        streetAddress = profile.streetAddress
+        state = profile.state
+        postalCode = profile.postalCode
         ownerName = profile.ownerName
         phone = profile.phone
         hours = profile.hours
@@ -115,6 +121,9 @@ struct SiteGenerationRestaurant: Encodable, Sendable {
         case name
         case cuisine
         case neighborhood
+        case streetAddress = "street_address"
+        case state
+        case postalCode = "postal_code"
         case ownerName = "owner_name"
         case phone
         case hours

@@ -428,8 +428,8 @@ private struct WebsiteInfoSection: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
                 ContactFact(
                     title: "Location",
-                    value: displayValue(studio.restaurant.neighborhood, fallback: "Location not provided"),
-                    isProvided: !studio.restaurant.neighborhood.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    value: displayValue(studio.restaurant.formattedAddress, fallback: "Location not provided"),
+                    isProvided: !studio.restaurant.formattedAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                     systemImage: "mappin.and.ellipse"
                 )
                 ContactFact(
@@ -555,6 +555,12 @@ private struct DraftReadinessCard: View {
                     : "\(missingDescriptionCount) item\(missingDescriptionCount == 1 ? "" : "s") need descriptions",
                 isReady: missingDescriptionCount == 0 && !studio.restaurant.menuItems.isEmpty,
                 systemImage: "text.bubble"
+            ),
+            DraftReadinessCheck(
+                title: "Street Address",
+                detail: displayStatus(studio.restaurant.formattedAddress, fallback: "Optional, but useful for directions"),
+                isReady: !studio.restaurant.streetAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                systemImage: "mappin.and.ellipse"
             ),
             DraftReadinessCheck(
                 title: "Phone",

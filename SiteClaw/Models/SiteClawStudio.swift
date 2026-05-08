@@ -96,6 +96,101 @@ final class SiteClawStudio {
         return Double(answered) / Double(voicePrompts.count)
     }
 
+    var missingDetails: [MissingDetail] {
+        var details: [MissingDetail] = []
+
+        if restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            details.append(
+                MissingDetail(
+                    kind: .restaurantName,
+                    title: "Restaurant Name",
+                    detail: "Needed before the draft can use the correct brand name.",
+                    prompt: "What exact restaurant name should customers see?",
+                    systemImage: "storefront.fill",
+                    isOptional: false
+                )
+            )
+        }
+
+        let menuItems = restaurant.menuItems
+        let missingPriceCount = menuItems.filter { ($0.price ?? 0) <= 0 }.count
+        if !menuItems.isEmpty, missingPriceCount > 0 {
+            details.append(
+                MissingDetail(
+                    kind: .menuPrices,
+                    title: "Menu Prices",
+                    detail: "\(missingPriceCount) menu item\(missingPriceCount == 1 ? "" : "s") still need prices.",
+                    prompt: "What are the prices for \(menuItems.map(\.name).joined(separator: ", "))?",
+                    systemImage: "tag.fill",
+                    isOptional: false
+                )
+            )
+        }
+
+        let missingDescriptionCount = menuItems.filter {
+            $0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.count
+        if !menuItems.isEmpty, missingDescriptionCount > 0 {
+            details.append(
+                MissingDetail(
+                    kind: .dishDescriptions,
+                    title: "Dish Descriptions",
+                    detail: "\(missingDescriptionCount) menu item\(missingDescriptionCount == 1 ? "" : "s") need short descriptions.",
+                    prompt: "Describe each featured dish in one short phrase.",
+                    systemImage: "text.bubble.fill",
+                    isOptional: false
+                )
+            )
+        }
+
+        if restaurant.formattedAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || restaurant.streetAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            details.append(
+                MissingDetail(
+                    kind: .address,
+                    title: "Street Address",
+                    detail: "A street address helps customers navigate from the site.",
+                    prompt: "What is the restaurant street address?",
+                    systemImage: "mappin.and.ellipse",
+                    isOptional: true
+                )
+            )
+        }
+
+        if restaurant.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            details.append(
+                MissingDetail(
+                    kind: .phone,
+                    title: "Phone",
+                    detail: "Optional, but useful for customers who want to call.",
+                    prompt: "What phone number should customers call?",
+                    systemImage: "phone.fill",
+                    isOptional: true
+                )
+            )
+        }
+
+        return details
+    }
+
+    var missingDetailsProgressLabel: String {
+        let total = missingDetails.count + readyDetailCount
+        guard total > 0 else { return "Ready" }
+        return "\(readyDetailCount)/\(total)"
+    }
+
+    private var readyDetailCount: Int {
+        var count = 0
+        if !restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { count += 1 }
+        if !restaurant.menuItems.isEmpty,
+           restaurant.menuItems.allSatisfy({ ($0.price ?? 0) > 0 }) { count += 1 }
+        if !restaurant.menuItems.isEmpty,
+           restaurant.menuItems.allSatisfy({ !$0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { count += 1 }
+        if !restaurant.streetAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { count += 1 }
+        if !restaurant.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { count += 1 }
+        return count
+    }
+
     var activeVoicePrompt: VoiceOnboardingPrompt {
         guard !voicePrompts.isEmpty else {
             return VoiceOnboardingPrompt.empty
@@ -456,6 +551,22 @@ final class SiteClawStudio {
         guard voicePrompts.indices.contains(activeVoicePromptIndex) else { return }
 
         voiceTranscript = VoiceTranscriptNormalizer.normalize(voiceTranscript)
+        let currentPrompt = voicePrompts[activeVoicePromptIndex]
+
+        if let missingDetailKind = currentPrompt.missingDetailKind {
+            let answer = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard applyMissingDetailAnswer(answer, kind: missingDetailKind) else {
+                realtimeStatus = "Needs Detail"
+                realtimeConnectionDetail = "That answer did not include the detail SiteClaw needs yet."
+                return
+            }
+
+            voicePrompts[activeVoicePromptIndex].capturedAnswer = answer
+            realtimeStatus = missingDetails.isEmpty ? "Ready to Publish" : "Captured"
+            realtimeConnectionDetail = nextMissingDetailMessage
+            return
+        }
+
         let extraction = TranscriptRestaurantExtractor.extract(from: voiceTranscript)
         let answer = extraction.promptAnswers[activeVoicePromptIndex]
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -466,7 +577,7 @@ final class SiteClawStudio {
             return
         }
 
-        restaurant = extraction.profile
+        restaurant = mergeWithExistingProfile(extraction.profile)
         voicePrompts[activeVoicePromptIndex].capturedAnswer = answer
 
         if activeVoicePromptIndex < voicePrompts.count - 1 {
@@ -479,6 +590,33 @@ final class SiteClawStudio {
 
     func previousVoicePrompt() {
         activeVoicePromptIndex = max(activeVoicePromptIndex - 1, 0)
+    }
+
+    func focusNextMissingDetail() {
+        guard let detail = missingDetails.first else {
+            realtimeStatus = "Ready to Publish"
+            realtimeConnectionDetail = "All tracked owner details are captured."
+            return
+        }
+
+        let prompt = VoiceOnboardingPrompt(
+            question: detail.prompt,
+            helperText: detail.detail,
+            capturedAnswer: "",
+            systemImage: detail.systemImage,
+            missingDetailKind: detail.kind
+        )
+
+        if let existingIndex = voicePrompts.firstIndex(where: { $0.missingDetailKind == detail.kind }) {
+            voicePrompts[existingIndex] = prompt
+            activeVoicePromptIndex = existingIndex
+        } else {
+            voicePrompts.append(prompt)
+            activeVoicePromptIndex = voicePrompts.count - 1
+        }
+
+        realtimeStatus = "Needs Detail"
+        realtimeConnectionDetail = "Record one answer for: \(detail.title)."
     }
 
     func resetVoiceOnboarding() {
@@ -506,12 +644,14 @@ final class SiteClawStudio {
 
         voiceTranscript = VoiceTranscriptNormalizer.normalize(trimmedTranscript)
         let extraction = TranscriptRestaurantExtractor.extract(from: voiceTranscript)
-        restaurant = extraction.profile
+        restaurant = mergeWithExistingProfile(extraction.profile)
         voicePrompts = TranscriptRestaurantExtractor.makePrompts(from: extraction.promptAnswers)
         activeVoicePromptIndex = voicePrompts.firstIndex { $0.capturedAnswer.isEmpty }
             ?? max(voicePrompts.count - 1, 0)
         realtimeStatus = "Captured"
-        realtimeConnectionDetail = "Transcript processed into owner-provided restaurant fields."
+        realtimeConnectionDetail = missingDetails.isEmpty
+            ? "Transcript processed and all tracked owner details are captured."
+            : "Transcript processed. \(missingDetails.count) detail\(missingDetails.count == 1 ? "" : "s") still need owner input."
         siteExportStatus = "Restaurant details changed. Prepare a fresh static export."
         lastSiteExportedAt = nil
         return true
@@ -549,6 +689,18 @@ final class SiteClawStudio {
 
         if voicePrompts.indices.contains(activeVoicePromptIndex),
            voicePrompts[activeVoicePromptIndex].capturedAnswer.isEmpty {
+            if let missingDetailKind = voicePrompts[activeVoicePromptIndex].missingDetailKind {
+                if applyMissingDetailAnswer(trimmed, kind: missingDetailKind) {
+                    voicePrompts[activeVoicePromptIndex].capturedAnswer = trimmed
+                    realtimeStatus = missingDetails.isEmpty ? "Ready to Publish" : "Captured"
+                    realtimeConnectionDetail = nextMissingDetailMessage
+                } else {
+                    realtimeStatus = "Needs Detail"
+                    realtimeConnectionDetail = "I heard that answer, but it did not include the detail SiteClaw needs yet."
+                }
+                return
+            }
+
             voicePrompts[activeVoicePromptIndex].capturedAnswer = trimmed
 
             if activeVoicePromptIndex < voicePrompts.count - 1 {
@@ -562,6 +714,113 @@ final class SiteClawStudio {
         } else {
             realtimeStatus = "Captured"
             realtimeConnectionDetail = "Transcript captured from the live Realtime stream."
+        }
+    }
+
+    @discardableResult
+    private func applyMissingDetailAnswer(_ answer: String, kind: MissingDetailKind) -> Bool {
+        let normalizedAnswer = VoiceTranscriptNormalizer.normalize(answer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAnswer.isEmpty else { return false }
+
+        let wasApplied: Bool
+
+        switch kind {
+        case .restaurantName:
+            if let name = MissingDetailAnswerExtractor.restaurantName(from: normalizedAnswer) {
+                restaurant.name = name
+                wasApplied = true
+            } else {
+                wasApplied = false
+            }
+        case .menuPrices:
+            wasApplied = MissingDetailAnswerExtractor.applyMenuPrices(from: normalizedAnswer, to: &restaurant.menuItems)
+        case .dishDescriptions:
+            wasApplied = MissingDetailAnswerExtractor.applyMenuDescriptions(from: normalizedAnswer, to: &restaurant.menuItems)
+        case .phone:
+            if let phone = MissingDetailAnswerExtractor.phone(from: normalizedAnswer) {
+                restaurant.phone = phone
+                wasApplied = true
+            } else {
+                wasApplied = false
+            }
+        case .address:
+            let address = MissingDetailAnswerExtractor.address(from: normalizedAnswer)
+            if !address.streetAddress.isEmpty { restaurant.streetAddress = address.streetAddress }
+            if !address.city.isEmpty { restaurant.neighborhood = address.city }
+            if !address.state.isEmpty { restaurant.state = address.state }
+            if !address.postalCode.isEmpty { restaurant.postalCode = address.postalCode }
+            wasApplied = !address.streetAddress.isEmpty
+        }
+
+        if wasApplied {
+            siteExportStatus = "Restaurant details changed. Prepare a fresh static export."
+            lastSiteExportedAt = nil
+        }
+
+        return wasApplied
+    }
+
+    private var nextMissingDetailMessage: String {
+        guard let next = missingDetails.first else {
+            return "All tracked owner details are captured. Generate or refresh the website draft when you are ready."
+        }
+
+        return "Captured that detail. Next missing detail: \(next.title)."
+    }
+
+    private func mergeWithExistingProfile(_ profile: RestaurantProfile) -> RestaurantProfile {
+        var merged = profile
+
+        if merged.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            merged.name = restaurant.name
+        }
+        if merged.cuisine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            merged.cuisine = restaurant.cuisine
+        }
+        if merged.neighborhood.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            merged.neighborhood = restaurant.neighborhood
+        }
+        if merged.streetAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            merged.streetAddress = restaurant.streetAddress
+        }
+        if merged.state.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            merged.state = restaurant.state
+        }
+        if merged.postalCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            merged.postalCode = restaurant.postalCode
+        }
+        if merged.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            merged.phone = restaurant.phone
+        }
+        if merged.hours.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            merged.hours = restaurant.hours
+        }
+        if merged.story.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            merged.story = restaurant.story
+        }
+
+        merged.menuItems = mergeMenuItems(extracted: merged.menuItems, existing: restaurant.menuItems)
+        return merged
+    }
+
+    private func mergeMenuItems(extracted: [MenuItem], existing: [MenuItem]) -> [MenuItem] {
+        guard !extracted.isEmpty else { return existing }
+
+        return extracted.map { extractedItem in
+            guard let existingItem = existing.first(where: {
+                MissingDetailAnswerExtractor.menuKey($0.name) == MissingDetailAnswerExtractor.menuKey(extractedItem.name)
+            }) else {
+                return extractedItem
+            }
+
+            return MenuItem(
+                name: extractedItem.name,
+                description: extractedItem.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? existingItem.description
+                    : extractedItem.description,
+                price: extractedItem.price ?? existingItem.price
+            )
         }
     }
 
@@ -605,7 +864,7 @@ enum VoiceTranscriptNormalizer {
             .replacingOccurrences(of: #"\bfa rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bpho rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bfo lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
-            .replacingOccurrences(of: #"\b(?:pha|pah|fa|fah|buh|boh|bo|poh|fuh)\s+lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(?:pha|pah|fa|fah|fu|foo|buh|boh|bo|poh|fuh)\s+lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bphone lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\ba\.?\s*m\.?"#, with: "AM", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bp\.?\s*m\.?"#, with: "PM", options: [.regularExpression, .caseInsensitive])
@@ -633,8 +892,259 @@ enum VoiceTranscriptNormalizer {
         "nine": "9",
         "ten": "10",
         "eleven": "11",
-        "twelve": "12"
+        "twelve": "12",
+        "thirteen": "13",
+        "fourteen": "14",
+        "fifteen": "15",
+        "sixteen": "16",
+        "seventeen": "17",
+        "eighteen": "18",
+        "nineteen": "19",
+        "twenty": "20"
     ]
+}
+
+private struct AddressExtraction {
+    var streetAddress: String = ""
+    var city: String = ""
+    var state: String = ""
+    var postalCode: String = ""
+}
+
+private enum MissingDetailAnswerExtractor {
+    static func restaurantName(from text: String) -> String? {
+        let patterns = [
+            #"\b(?:called|named|restaurant is|business is)\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|we\s+|we're\s+|serves?\s+|open\s+|in\s+)|$)"#,
+            #"^([A-Za-z0-9&' .-]{2,80})$"#
+        ]
+
+        for pattern in patterns {
+            if let match = firstMatch(pattern, in: text),
+               let cleaned = cleanName(match) {
+                return cleaned
+            }
+        }
+
+        return nil
+    }
+
+    static func applyMenuPrices(from text: String, to items: inout [MenuItem]) -> Bool {
+        guard !items.isEmpty else { return false }
+
+        var changed = false
+        let prices = allPrices(in: text)
+        let missingIndexes = items.indices.filter { (items[$0].price ?? 0) <= 0 }
+
+        if prices.count == missingIndexes.count, !prices.isEmpty {
+            for (index, price) in zip(missingIndexes, prices) {
+                items[index].price = price
+            }
+            return true
+        }
+
+        let splitText = text
+            .replacingOccurrences(of: #"\s+and\s+"#, with: ", ", options: [.regularExpression, .caseInsensitive])
+        let clauses = splitText
+            .components(separatedBy: CharacterSet(charactersIn: ",.;\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        for clause in clauses {
+            guard allPrices(in: clause).count <= 1 else { continue }
+
+            guard let price = firstPrice(in: clause),
+                  let index = bestMenuItemIndex(for: clause, in: items) else {
+                continue
+            }
+
+            items[index].price = price
+            changed = true
+        }
+
+        return changed
+    }
+
+    static func applyMenuDescriptions(from text: String, to items: inout [MenuItem]) -> Bool {
+        guard !items.isEmpty else { return false }
+
+        let matches = menuItemMatches(in: text, items: items)
+        guard !matches.isEmpty else { return false }
+
+        var changed = false
+
+        for (position, match) in matches.enumerated() {
+            let nextStart = matches.indices.contains(position + 1)
+                ? matches[position + 1].range.lowerBound
+                : text.endIndex
+            let segment = String(text[match.range.lowerBound..<nextStart])
+            guard let description = cleanedDescription(from: segment, itemName: items[match.itemIndex].name) else {
+                continue
+            }
+
+            items[match.itemIndex].description = description
+            changed = true
+        }
+
+        return changed
+    }
+
+    static func phone(from text: String) -> String? {
+        firstMatch(#"((?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4})"#, in: text)
+    }
+
+    static func address(from text: String) -> AddressExtraction {
+        let street = firstMatch(
+            #"\b(\d{2,6}\s+[A-Za-z0-9 .'#-]+?\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Place|Pl\.?|Court|Ct\.?))\b"#,
+            in: text
+        ) ?? ""
+        let city = knownCities.first { text.range(of: $0, options: [.caseInsensitive]) != nil } ?? ""
+        let rawState = firstMatch(#"\b(CA|California)\b"#, in: text) ?? ""
+        let postalCode = firstMatch(#"\b(\d{5}(?:-\d{4})?)\b"#, in: text) ?? ""
+
+        return AddressExtraction(
+            streetAddress: cleanAddress(street),
+            city: city,
+            state: rawState.isEmpty ? "" : "CA",
+            postalCode: postalCode
+        )
+    }
+
+    static func menuKey(_ value: String) -> String {
+        value
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .map { word in
+                if word.hasSuffix("s"), word.count > 3 {
+                    return String(word.dropLast())
+                }
+                return word
+            }
+            .joined()
+    }
+
+    private static let knownCities = [
+        "San Jose", "San Francisco", "Oakland", "Daly City", "Los Angeles", "Sacramento",
+        "Berkeley", "Fremont", "Santa Clara", "Sunnyvale", "Mountain View", "Palo Alto"
+    ]
+
+    private static func bestMenuItemIndex(for text: String, in items: [MenuItem]) -> Int? {
+        let key = menuKey(text)
+        return items.indices.first { index in
+            let itemKey = menuKey(items[index].name)
+            return key.contains(itemKey) || itemKey.contains(key)
+        }
+    }
+
+    private static func firstPrice(in text: String) -> Double? {
+        allPrices(in: text).first
+    }
+
+    private static func allPrices(in text: String) -> [Double] {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"(?:\$|for\s+)?(\d+(?:\.\d{1,2})?)\s*(?:dollars|bucks)?"#,
+            options: [.caseInsensitive]
+        ) else {
+            return []
+        }
+
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let matchRange = Range(match.range(at: 1), in: text) else {
+                return nil
+            }
+
+            return Double(String(text[matchRange]))
+        }
+    }
+
+    private static func menuItemMatches(in text: String, items: [MenuItem]) -> [(itemIndex: Int, range: Range<String.Index>)] {
+        var matches: [(itemIndex: Int, range: Range<String.Index>)] = []
+
+        for index in items.indices {
+            let escapedName = NSRegularExpression.escapedPattern(for: items[index].name)
+            guard let regex = try? NSRegularExpression(pattern: #"\b\#(escapedName)\b"#, options: [.caseInsensitive]) else {
+                continue
+            }
+
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            for match in regex.matches(in: text, range: range) {
+                guard let matchRange = Range(match.range, in: text) else { continue }
+                matches.append((index, matchRange))
+            }
+        }
+
+        return matches.sorted { $0.range.lowerBound < $1.range.lowerBound }
+    }
+
+    private static func cleanedDescription(from segment: String, itemName: String) -> String? {
+        var cleaned = segment
+            .replacingOccurrences(of: NSRegularExpression.escapedPattern(for: itemName), with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(
+                of: #"^\s*(?:is|are|has|have|with|contains|includes|comes with|:|-)\s+"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".:;-,")))
+
+        guard cleaned.count >= 6 else { return nil }
+
+        cleaned = cleaned.prefix(1).uppercased() + String(cleaned.dropFirst())
+        if !cleaned.hasSuffix(".") {
+            cleaned += "."
+        }
+
+        return cleaned
+    }
+
+    private static func cleanName(_ value: String) -> String? {
+        let cleaned = value
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".:;")))
+        guard cleaned.count >= 2 else { return nil }
+
+        return titleCased(cleaned)
+    }
+
+    private static func cleanAddress(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".:;,")))
+    }
+
+    private static func titleCased(_ value: String) -> String {
+        value
+            .split(separator: " ")
+            .map { word in
+                let lowercased = word.lowercased()
+                if lowercased == "pho" { return "Pho" }
+                if lowercased == "bbq" { return "BBQ" }
+                return lowercased.prefix(1).uppercased() + String(lowercased.dropFirst())
+            }
+            .joined(separator: " ")
+    }
+
+    private static func firstMatch(
+        _ pattern: String,
+        in text: String,
+        group: Int = 1,
+        options: NSRegularExpression.Options = [.caseInsensitive]
+    ) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
+            return nil
+        }
+
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              match.numberOfRanges > group,
+              let matchRange = Range(match.range(at: group), in: text) else {
+            return nil
+        }
+
+        return String(text[matchRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 private enum TranscriptRestaurantExtractor {
@@ -647,11 +1157,15 @@ private enum TranscriptRestaurantExtractor {
         let menuItems = extractMenuItems(from: normalizedTranscript)
         let story = extractStory(from: normalizedTranscript)
         let phone = extractPhone(from: normalizedTranscript)
+        let address = MissingDetailAnswerExtractor.address(from: normalizedTranscript)
 
         let profile = RestaurantProfile(
             name: name,
             cuisine: cuisine,
-            neighborhood: city,
+            neighborhood: address.city.isEmpty ? city : address.city,
+            streetAddress: address.streetAddress,
+            state: address.state,
+            postalCode: address.postalCode,
             ownerName: "",
             phone: phone,
             hours: hours,
@@ -788,11 +1302,7 @@ private enum TranscriptRestaurantExtractor {
         var items: [MenuItem] = []
 
         for clause in clauses {
-            let splitClause = clause
-                .replacingOccurrences(of: #"(?i)\s+and\s+"#, with: ", ", options: .regularExpression)
-                .replacingOccurrences(of: #"&"#, with: ",", options: .regularExpression)
-
-            for rawPart in splitClause.components(separatedBy: ",") {
+            for rawPart in menuParts(from: clause) {
                 guard let item = makeMenuItem(from: rawPart) else { continue }
                 let key = item.name.lowercased()
                 guard !seenNames.contains(key) else { continue }
@@ -802,6 +1312,67 @@ private enum TranscriptRestaurantExtractor {
         }
 
         return Array(items.prefix(8))
+    }
+
+    private static func menuParts(from clause: String) -> [String] {
+        let cleanedClause = cleanMenuClause(clause)
+            .replacingOccurrences(of: #"(?i)\s+and\s+"#, with: ", ", options: .regularExpression)
+            .replacingOccurrences(of: #"&"#, with: ",", options: .regularExpression)
+
+        return cleanedClause.components(separatedBy: ",")
+            .flatMap { splitKnownMenuPhrases($0) }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func cleanMenuClause(_ clause: String) -> String {
+        clause
+            .replacingOccurrences(
+                of: #"\s+\b(?:we\s+are|we're|we)\s+open\b.*$"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(
+                of: #"\s+\b(?:what\s+makes|what\s+make|makes\s+us\s+special|our\s+story|special\s+is)\b.*$"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(
+                of: #"\s+\b(?:made\s+from|made\s+with|served\s+with)\s+(?:family|friendly)\b.*$"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func splitKnownMenuPhrases(_ rawPart: String) -> [String] {
+        let normalized = rawPart.lowercased()
+        let knownPhrases: [(phrase: String, canonical: String)] = [
+            ("house pho", "House Pho"),
+            ("pho", "Pho"),
+            ("rice bowls", "Rice Bowls"),
+            ("rice bowl", "Rice Bowls"),
+            ("spring rolls", "Spring Rolls"),
+            ("spring roll", "Spring Rolls"),
+            ("iced coffee", "Iced Coffee"),
+            ("ice coffee", "Iced Coffee")
+        ]
+
+        let matches: [(offset: Int, canonical: String)] = knownPhrases.compactMap { phrase, canonical in
+            guard let range = normalized.range(of: phrase) else { return nil }
+            let offset = normalized.distance(from: normalized.startIndex, to: range.lowerBound)
+            return (offset, canonical)
+        }
+
+        let sortedMatches = matches.sorted { $0.offset < $1.offset }
+        let uniqueMatches = sortedMatches.reduce(into: [String]()) { result, match in
+            if !result.contains(match.canonical) {
+                result.append(match.canonical)
+            }
+        }
+
+        return uniqueMatches.count > 1 ? uniqueMatches : [rawPart]
     }
 
     private static func makeMenuItem(from rawPart: String) -> MenuItem? {
@@ -820,7 +1391,14 @@ private enum TranscriptRestaurantExtractor {
 
         let lowercased = part.lowercased()
         let rejected = ["food", "menu", "dishes", "restaurant", "comfort food"]
-        guard part.count >= 3, part.count <= 48, !rejected.contains(lowercased) else {
+        let rejectedFragments = [
+            "friendly", "neighborhood", "service", "family recipe", "open ", "monday", "tuesday",
+            "wednesday", "thursday", "friday", "saturday", "sunday", "what makes", "special"
+        ]
+        guard part.count >= 3,
+              part.count <= 48,
+              !rejected.contains(lowercased),
+              !rejectedFragments.contains(where: lowercased.contains) else {
             return nil
         }
 
@@ -996,6 +1574,17 @@ private enum TranscriptRestaurantExtractor {
 }
 
 extension RestaurantProfile {
+    var formattedAddress: String {
+        let stateLine = [state, postalCode]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return [streetAddress, neighborhood, stateLine]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+    }
+
     static let empty = RestaurantProfile(
         name: "",
         cuisine: "",
