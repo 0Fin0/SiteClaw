@@ -6,15 +6,16 @@ The product concept comes from the ISYS 556 SiteClaw project: restaurant owners 
 
 ## Current Prototype
 
-This first version is a SwiftUI app with Mac and iOS targets. It has five main tabs:
+This first version is a SwiftUI app with Mac and iOS targets. It has six main tabs:
 
 - Talk: voice-onboarding prototype for capturing the owner conversation
 - Build: restaurant intake and AI-style onboarding conversation
 - Dashboard: launch readiness, MVP checklist, recent activity, and publish status
 - Preview: generated restaurant website mockup
+- JSON: generated `restaurant.json` data contract preview
 - Updates: voice-style quick updates for hours, menus, and announcements
 
-The AI, voice, and deployment behavior is currently simulated so the project runs immediately in Xcode. The Talk tab is designed to be replaced by OpenAI Realtime once a backend can mint short-lived Realtime session tokens.
+The AI, voice, and deployment behavior is currently simulated so the project runs immediately in Xcode. The Talk tab can request a short-lived OpenAI Realtime session token from the local backend; full live microphone streaming is the next layer.
 
 ## Tech Direction
 
@@ -88,11 +89,12 @@ curl -X POST http://localhost:8787/api/realtime/session \
   -d '{"restaurantName":"Pho Lotus Kitchen"}'
 ```
 
+Once the backend is running, press Start in the Talk tab to verify that the app can request a Realtime session token. If the backend is missing or `OPENAI_API_KEY` is not configured, the app shows the backend error in the Talk tab.
+
 ## Next Steps
 
 - Add real restaurant intake fields for menu editing
-- Wire `RealtimeSessionService` into the Talk tab
-- Add real OpenAI Realtime microphone flow using the backend session-token endpoint
+- Add real OpenAI Realtime microphone streaming after the session-token handshake
 - Add a backend endpoint for AI generation
 - Add generated-site export or Cloudflare Pages publishing
 - Add collaborators through GitHub after the remote repository is published

@@ -16,6 +16,10 @@ final class SiteClawStudio {
     var voicePrompts: [VoiceOnboardingPrompt]
     var voiceTranscript: String
     var realtimeStatus: String
+    var realtimeConnectionDetail: String
+    var realtimeModel: String
+    var realtimeVoice: String
+    var realtimeSessionExpiresAt: Date?
     var activeVoicePromptIndex: Int
     var isPublished: Bool
     var isDraftGenerated: Bool
@@ -30,6 +34,10 @@ final class SiteClawStudio {
         voicePrompts: [VoiceOnboardingPrompt] = VoiceOnboardingPrompt.samples,
         voiceTranscript: String = VoiceOnboardingPrompt.sampleTranscript,
         realtimeStatus: String = "Ready",
+        realtimeConnectionDetail: String = "Use Start to request a short-lived Realtime session from the local backend.",
+        realtimeModel: String = "",
+        realtimeVoice: String = "",
+        realtimeSessionExpiresAt: Date? = nil,
         activeVoicePromptIndex: Int = 0,
         isPublished: Bool = false,
         isDraftGenerated: Bool = true,
@@ -43,6 +51,10 @@ final class SiteClawStudio {
         self.voicePrompts = voicePrompts
         self.voiceTranscript = voiceTranscript
         self.realtimeStatus = realtimeStatus
+        self.realtimeConnectionDetail = realtimeConnectionDetail
+        self.realtimeModel = realtimeModel
+        self.realtimeVoice = realtimeVoice
+        self.realtimeSessionExpiresAt = realtimeSessionExpiresAt
         self.activeVoicePromptIndex = activeVoicePromptIndex
         self.isPublished = isPublished
         self.isDraftGenerated = isDraftGenerated
@@ -81,6 +93,24 @@ final class SiteClawStudio {
     var activeVoiceStepLabel: String {
         guard !voicePrompts.isEmpty else { return "Step 0 of 0" }
         return "Step \(min(activeVoicePromptIndex + 1, voicePrompts.count)) of \(voicePrompts.count)"
+    }
+
+    var realtimeSessionLabel: String {
+        var parts: [String] = []
+
+        if !realtimeModel.isEmpty {
+            parts.append(realtimeModel)
+        }
+
+        if !realtimeVoice.isEmpty {
+            parts.append("voice \(realtimeVoice)")
+        }
+
+        if let realtimeSessionExpiresAt {
+            parts.append("expires \(realtimeSessionExpiresAt.formatted(date: .omitted, time: .shortened))")
+        }
+
+        return parts.isEmpty ? "Local backend: http://localhost:8787" : parts.joined(separator: " - ")
     }
 
     var restaurantJSON: RestaurantJSON {
@@ -161,6 +191,7 @@ final class SiteClawStudio {
         voicePrompts = VoiceOnboardingPrompt.filledSamples
         activeVoicePromptIndex = voicePrompts.count - 1
         realtimeStatus = "Captured"
+        realtimeConnectionDetail = "Loaded the guided demo transcript and extracted restaurant details."
         messages.append(
             BuilderMessage(
                 role: .owner,
@@ -171,7 +202,11 @@ final class SiteClawStudio {
     }
 
     func startRealtimeSession() {
-        realtimeStatus = "Listening"
+        realtimeStatus = "Connecting"
+        realtimeConnectionDetail = "Requesting a short-lived Realtime token from the SiteClaw backend."
+        realtimeModel = ""
+        realtimeVoice = ""
+        realtimeSessionExpiresAt = nil
         activeVoicePromptIndex = 0
         voicePrompts = VoiceOnboardingPrompt.samples
         messages.append(
@@ -184,6 +219,35 @@ final class SiteClawStudio {
 
     func stopRealtimeSession() {
         realtimeStatus = "Processing"
+        realtimeConnectionDetail = "Realtime session paused. You can continue with guided capture or generate from the transcript."
+    }
+
+    func completeRealtimeSession(_ response: RealtimeSessionResponse) {
+        realtimeStatus = "Token Ready"
+        realtimeModel = response.model ?? ""
+        realtimeVoice = response.voice ?? ""
+        realtimeSessionExpiresAt = response.expiresAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        realtimeConnectionDetail = "Backend returned a client secret. The next layer is live audio streaming in the app."
+        messages.append(
+            BuilderMessage(
+                role: .assistant,
+                text: "Realtime session token is ready. Next we can connect microphone audio to the Realtime API."
+            )
+        )
+    }
+
+    func failRealtimeSession(_ error: Error) {
+        realtimeStatus = "Backend Needed"
+        realtimeConnectionDetail = error.localizedDescription
+        realtimeModel = ""
+        realtimeVoice = ""
+        realtimeSessionExpiresAt = nil
+        messages.append(
+            BuilderMessage(
+                role: .assistant,
+                text: "I could not create a Realtime session yet. Start the backend and make sure Backend/.env has an OPENAI_API_KEY."
+            )
+        )
     }
 
     func captureCurrentVoicePrompt() {
@@ -209,6 +273,10 @@ final class SiteClawStudio {
         voicePrompts = VoiceOnboardingPrompt.samples
         voiceTranscript = ""
         realtimeStatus = "Ready"
+        realtimeConnectionDetail = "Use Start to request a short-lived Realtime session from the local backend."
+        realtimeModel = ""
+        realtimeVoice = ""
+        realtimeSessionExpiresAt = nil
         activeVoicePromptIndex = 0
     }
 
@@ -217,6 +285,7 @@ final class SiteClawStudio {
         voicePrompts = VoiceOnboardingPrompt.filledSamples
         activeVoicePromptIndex = voicePrompts.count - 1
         realtimeStatus = "Generated"
+        realtimeConnectionDetail = "Transcript processed into restaurant data and website content."
         messages.append(BuilderMessage(role: .owner, text: voiceTranscript))
         messages.append(
             BuilderMessage(

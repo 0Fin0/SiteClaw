@@ -41,6 +41,7 @@ struct TalkToSiteClawView: View {
 private struct VoiceHeroCard: View {
     @Bindable var studio: SiteClawStudio
     @Binding var isListening: Bool
+    @State private var sessionTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -53,6 +54,13 @@ private struct VoiceHeroCard: View {
                     Text(studio.realtimeStatus)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(statusColor)
+                    Text(studio.realtimeConnectionDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Label(studio.realtimeSessionLabel, systemImage: "network")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(SiteClawTheme.sky)
                     Text("SiteClaw asks the owner five questions, captures the answers, then generates a restaurant website draft.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -77,12 +85,7 @@ private struct VoiceHeroCard: View {
 
             HStack(spacing: 10) {
                 Button {
-                    isListening.toggle()
-                    if isListening {
-                        studio.startRealtimeSession()
-                    } else {
-                        studio.stopRealtimeSession()
-                    }
+                    toggleRealtimeSession()
                 } label: {
                     Label(isListening ? "Stop" : "Start", systemImage: isListening ? "stop.fill" : "mic.fill")
                         .frame(maxWidth: .infinity)
@@ -91,6 +94,7 @@ private struct VoiceHeroCard: View {
                 .tint(isListening ? SiteClawTheme.coral : SiteClawTheme.navy)
 
                 Button {
+                    sessionTask?.cancel()
                     isListening = false
                     studio.loadVoiceExample()
                 } label: {
@@ -99,6 +103,9 @@ private struct VoiceHeroCard: View {
                 }
                 .buttonStyle(.bordered)
             }
+        }
+        .onDisappear {
+            sessionTask?.cancel()
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,12 +117,45 @@ private struct VoiceHeroCard: View {
         }
     }
 
+    private func toggleRealtimeSession() {
+        if isListening {
+            sessionTask?.cancel()
+            sessionTask = nil
+            isListening = false
+            studio.stopRealtimeSession()
+            return
+        }
+
+        isListening = true
+        studio.startRealtimeSession()
+
+        let restaurantName = studio.restaurant.name
+        sessionTask = Task {
+            do {
+                let response = try await RealtimeSessionService().createSession(restaurantName: restaurantName)
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    studio.completeRealtimeSession(response)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    isListening = false
+                    studio.failRealtimeSession(error)
+                }
+            }
+        }
+    }
+
     private var statusColor: Color {
         switch studio.realtimeStatus {
+        case "Connecting", "Processing": SiteClawTheme.gold
+        case "Token Ready", "Generated": SiteClawTheme.mint
         case "Listening": SiteClawTheme.coral
-        case "Generated": SiteClawTheme.mint
-        case "Processing": SiteClawTheme.gold
         case "Captured": SiteClawTheme.sky
+        case "Backend Needed": SiteClawTheme.coral
         default: SiteClawTheme.sky
         }
     }
