@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct RestaurantJSON: Codable, Hashable {
+struct RestaurantJSON: Codable, Hashable, Sendable {
     var schemaVersion: String
     var restaurantID: String
     var lastUpdated: String
@@ -29,7 +29,7 @@ struct RestaurantJSON: Codable, Hashable {
     }
 }
 
-struct RestaurantJSONBasics: Codable, Hashable {
+struct RestaurantJSONBasics: Codable, Hashable, Sendable {
     var name: String
     var tagline: String
     var description: String
@@ -45,12 +45,12 @@ struct RestaurantJSONBasics: Codable, Hashable {
     }
 }
 
-struct RestaurantJSONContact: Codable, Hashable {
+struct RestaurantJSONContact: Codable, Hashable, Sendable {
     var phone: String
     var address: RestaurantJSONAddress
 }
 
-struct RestaurantJSONAddress: Codable, Hashable {
+struct RestaurantJSONAddress: Codable, Hashable, Sendable {
     var street: String
     var city: String
     var state: String
@@ -58,7 +58,7 @@ struct RestaurantJSONAddress: Codable, Hashable {
     var country: String
 }
 
-struct RestaurantJSONHours: Codable, Hashable {
+struct RestaurantJSONHours: Codable, Hashable, Sendable {
     var monday: [RestaurantJSONTimeRange]
     var tuesday: [RestaurantJSONTimeRange]
     var wednesday: [RestaurantJSONTimeRange]
@@ -68,17 +68,17 @@ struct RestaurantJSONHours: Codable, Hashable {
     var sunday: [RestaurantJSONTimeRange]
 }
 
-struct RestaurantJSONTimeRange: Codable, Hashable {
+struct RestaurantJSONTimeRange: Codable, Hashable, Sendable {
     var open: String
     var close: String
 }
 
-struct RestaurantJSONMenu: Codable, Hashable {
+struct RestaurantJSONMenu: Codable, Hashable, Sendable {
     var categories: [RestaurantJSONMenuCategory]
     var notes: String
 }
 
-struct RestaurantJSONMenuCategory: Codable, Hashable {
+struct RestaurantJSONMenuCategory: Codable, Hashable, Sendable {
     var name: String
     var description: String
     var sortOrder: Int
@@ -92,7 +92,7 @@ struct RestaurantJSONMenuCategory: Codable, Hashable {
     }
 }
 
-struct RestaurantJSONMenuItem: Codable, Hashable {
+struct RestaurantJSONMenuItem: Codable, Hashable, Sendable {
     var name: String
     var description: String
     var price: Double
@@ -101,13 +101,13 @@ struct RestaurantJSONMenuItem: Codable, Hashable {
     var available: Bool
 }
 
-struct RestaurantJSONSEO: Codable, Hashable {
+struct RestaurantJSONSEO: Codable, Hashable, Sendable {
     var title: String
     var description: String
     var keywords: [String]
 }
 
-struct RestaurantJSONBranding: Codable, Hashable {
+struct RestaurantJSONBranding: Codable, Hashable, Sendable {
     var primaryColor: String
     var accentColor: String
     var fontStyle: String

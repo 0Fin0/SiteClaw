@@ -308,15 +308,18 @@ private struct TranscriptEditor: View {
 
 private struct VoiceActionPanel: View {
     @Bindable var studio: SiteClawStudio
+    @State private var isGeneratingDraft = false
+    @State private var generationTask: Task<Void, Never>?
+    @State private var generationMessage: String?
 
     var body: some View {
         VStack(spacing: 10) {
             Button {
-                studio.processVoiceTranscript()
+                generateWebsiteDraft()
             } label: {
                 HStack {
-                    Image(systemName: "sparkles")
-                    Text("Generate Website Draft")
+                    Image(systemName: isGeneratingDraft ? "hourglass" : "sparkles")
+                    Text(isGeneratingDraft ? "Generating Draft" : "Generate Website Draft")
                     Spacer()
                     Image(systemName: "chevron.right")
                 }
@@ -326,11 +329,43 @@ private struct VoiceActionPanel: View {
                 .background(SiteClawTheme.coral)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
+            .disabled(isGeneratingDraft)
 
-            Text("Demo mode uses a sample transcript. The production version will call a backend endpoint for a short-lived Realtime session token.")
+            Text(generationMessage ?? "Uses the local backend to generate site copy from the transcript, then falls back to the demo generator if needed.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+        }
+        .onDisappear {
+            generationTask?.cancel()
+        }
+    }
+
+    private func generateWebsiteDraft() {
+        generationTask?.cancel()
+        isGeneratingDraft = true
+        generationMessage = "Requesting AI website copy from the local backend."
+
+        let request = SiteGenerationRequest(studio: studio)
+        generationTask = Task {
+            do {
+                let response = try await SiteGenerationService().generateDraft(request: request)
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    studio.applyGeneratedDraft(response)
+                    generationMessage = "AI draft generated with \(response.model)."
+                    isGeneratingDraft = false
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    studio.useLocalDraftFallback(after: error)
+                    generationMessage = "Backend generation was unavailable, so SiteClaw used the local demo draft."
+                    isGeneratingDraft = false
+                }
+            }
         }
     }
 }

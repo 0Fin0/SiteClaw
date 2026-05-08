@@ -15,7 +15,7 @@ This first version is a SwiftUI app with Mac and iOS targets. It has six main ta
 - JSON: generated `restaurant.json` data contract preview
 - Updates: voice-style quick updates for hours, menus, and announcements
 
-The AI, voice, and deployment behavior is currently simulated so the project runs immediately in Xcode. The Talk tab can request a short-lived OpenAI Realtime session token from the local backend; full live microphone streaming is the next layer.
+The AI, voice, and deployment behavior still has demo fallbacks so the project runs immediately in Xcode. The Talk tab can request a short-lived OpenAI Realtime session token from the local backend and can call the backend to generate structured website draft copy.
 
 ## Tech Direction
 
@@ -91,11 +91,20 @@ curl -X POST http://localhost:8787/api/realtime/session \
 
 Once the backend is running, press Start in the Talk tab to verify that the app can request a Realtime session token. If the backend is missing or `OPENAI_API_KEY` is not configured, the app shows the backend error in the Talk tab.
 
+Generate website draft copy:
+
+```bash
+curl -X POST http://localhost:8787/api/generate/draft \
+  -H "Content-Type: application/json" \
+  -d '{"transcript":"Family-owned Vietnamese restaurant in San Jose with pho and rice bowls.","restaurant":{},"draft":{},"restaurant_json":{}}'
+```
+
+The app's Generate Website Draft button calls this endpoint first, then falls back to the local demo generator if the backend is unavailable.
+
 ## Next Steps
 
 - Add real restaurant intake fields for menu editing
 - Add real OpenAI Realtime microphone streaming after the session-token handshake
-- Add a backend endpoint for AI generation
 - Replace the single-file static export with the full Astro renderer
 - Add Cloudflare Pages publishing
 - Add collaborators through GitHub after the remote repository is published

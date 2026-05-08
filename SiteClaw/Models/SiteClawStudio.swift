@@ -157,6 +157,8 @@ final class SiteClawStudio {
         )
 
         isDraftGenerated = true
+        siteExportStatus = "Draft changed. Prepare a fresh static export."
+        lastSiteExportedAt = nil
         messages.append(
             BuilderMessage(
                 role: .assistant,
@@ -169,6 +171,38 @@ final class SiteClawStudio {
             detail: "AI created a first version of the site from the owner conversation.",
             timeLabel: "Just now"
         )
+    }
+
+    func applyGeneratedDraft(_ response: SiteGenerationResponse) {
+        let restaurantName = restaurant.name.isEmpty ? "your restaurant" : restaurant.name
+
+        draft = WebsiteDraft(
+            headline: response.draft.headline,
+            subheadline: response.draft.subheadline,
+            callToAction: response.draft.callToAction,
+            pages: response.draft.pages,
+            seoKeywords: response.draft.seoKeywords,
+            url: slugURL(for: restaurantName),
+            lastGeneratedSummary: response.draft.lastGeneratedSummary
+        )
+
+        isDraftGenerated = true
+        realtimeStatus = "Generated"
+        realtimeConnectionDetail = "AI generated website copy with \(response.model)."
+        siteExportStatus = "Draft changed. Prepare a fresh static export."
+        lastSiteExportedAt = nil
+        messages.append(BuilderMessage(role: .assistant, text: response.reply))
+        addUpdate(
+            type: .announcement,
+            title: "AI website draft generated",
+            detail: response.draft.lastGeneratedSummary,
+            timeLabel: "Just now"
+        )
+    }
+
+    func useLocalDraftFallback(after error: Error) {
+        processVoiceTranscript()
+        realtimeConnectionDetail = "Used the local demo generator because backend generation failed: \(error.localizedDescription)"
     }
 
     func publishDraft() {

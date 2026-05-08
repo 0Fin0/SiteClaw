@@ -24,8 +24,9 @@ const server = http.createServer(async (req, res) => {
         if (req.method === "GET" && url.pathname === "/health") {
             sendJSON(res, 200, {
                 ok: true,
-                service: "siteclaw-realtime-token-backend",
-                model: realtimeModel(),
+                service: "siteclaw-backend",
+                realtime_model: realtimeModel(),
+                generation_model: generationModel(),
             });
             return;
         }
@@ -33,6 +34,13 @@ const server = http.createServer(async (req, res) => {
         if ((req.method === "POST" || req.method === "GET") && isRealtimeSessionPath(url.pathname)) {
             const body = req.method === "POST" ? await readJSON(req) : {};
             const payload = await createRealtimeClientSecret(body);
+            sendJSON(res, 200, payload);
+            return;
+        }
+
+        if (req.method === "POST" && isDraftGenerationPath(url.pathname)) {
+            const body = await readJSON(req);
+            const payload = await generateWebsiteDraft(body);
             sendJSON(res, 200, payload);
             return;
         }
@@ -108,6 +116,94 @@ async function createRealtimeClientSecret(body) {
     };
 }
 
+async function generateWebsiteDraft(body) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        throw publicError(
+            500,
+            "Missing OPENAI_API_KEY. Copy Backend/.env.example to Backend/.env and add your key."
+        );
+    }
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw publicError(400, "Request body must be a JSON object.");
+    }
+
+    const restaurantJSON = body.restaurant_json ?? body.restaurantJSON ?? {};
+    const currentDraft = body.draft ?? {};
+    const restaurant = body.restaurant ?? {};
+    const transcript = sanitizeTextWithLimit(body.transcript, 5000);
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            model: generationModel(),
+            input: [
+                {
+                    role: "system",
+                    content: [
+                        "You are SiteClaw's website copy generator for local restaurants.",
+                        "Generate concise, credible website copy from owner-provided restaurant data.",
+                        "Do not invent addresses, phone numbers, prices, awards, or delivery partners.",
+                        "Keep the tone polished and useful for a busy local restaurant owner.",
+                    ].join(" "),
+                },
+                {
+                    role: "user",
+                    content: JSON.stringify(
+                        {
+                            transcript,
+                            restaurant,
+                            restaurant_json: restaurantJSON,
+                            current_draft: currentDraft,
+                            task: "Return improved website draft copy for the native app preview and static export.",
+                        },
+                        null,
+                        2
+                    ),
+                },
+            ],
+            text: {
+                format: {
+                    type: "json_schema",
+                    name: "siteclaw_generated_draft",
+                    schema: draftGenerationSchema(),
+                    strict: true,
+                },
+            },
+        }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const message = data?.error?.message || "OpenAI website draft generation failed.";
+        throw publicError(response.status, message);
+    }
+
+    const outputText = extractOutputText(data);
+    if (!outputText) {
+        throw publicError(502, "OpenAI did not return website draft text.");
+    }
+
+    let generated;
+    try {
+        generated = JSON.parse(outputText);
+    } catch {
+        throw publicError(502, "OpenAI returned draft text that was not valid JSON.");
+    }
+
+    return {
+        ...generated,
+        model: generationModel(),
+        source: "openai_responses",
+    };
+}
+
 function siteClawInstructions(restaurantName) {
     return [
         "You are SiteClaw, a friendly voice onboarding assistant for local restaurant owners.",
@@ -121,6 +217,62 @@ function siteClawInstructions(restaurantName) {
 
 function isRealtimeSessionPath(pathname) {
     return pathname === "/api/realtime/session" || pathname === "/token";
+}
+
+function isDraftGenerationPath(pathname) {
+    return pathname === "/api/generate/draft" || pathname === "/api/ai/draft";
+}
+
+function draftGenerationSchema() {
+    return {
+        type: "object",
+        properties: {
+            reply: {
+                type: "string",
+                description: "Short assistant message explaining what was generated.",
+            },
+            draft: {
+                type: "object",
+                properties: {
+                    headline: {
+                        type: "string",
+                        description: "Homepage hero headline.",
+                    },
+                    subheadline: {
+                        type: "string",
+                        description: "Homepage supporting copy.",
+                    },
+                    call_to_action: {
+                        type: "string",
+                        description: "Short button label.",
+                    },
+                    pages: {
+                        type: "array",
+                        items: { type: "string" },
+                    },
+                    seo_keywords: {
+                        type: "array",
+                        items: { type: "string" },
+                    },
+                    last_generated_summary: {
+                        type: "string",
+                        description: "One-sentence summary of what changed.",
+                    },
+                },
+                required: [
+                    "headline",
+                    "subheadline",
+                    "call_to_action",
+                    "pages",
+                    "seo_keywords",
+                    "last_generated_summary",
+                ],
+                additionalProperties: false,
+            },
+        },
+        required: ["reply", "draft"],
+        additionalProperties: false,
+    };
 }
 
 async function readJSON(req) {
@@ -191,11 +343,37 @@ function stripQuotes(value) {
 }
 
 function sanitizeText(value) {
-    return typeof value === "string" ? value.trim().slice(0, 120) : "";
+    return sanitizeTextWithLimit(value, 120);
+}
+
+function sanitizeTextWithLimit(value, maxLength) {
+    return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
 function realtimeModel() {
     return process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
+}
+
+function generationModel() {
+    return process.env.OPENAI_GENERATION_MODEL || "gpt-5.4-mini";
+}
+
+function extractOutputText(data) {
+    if (typeof data?.output_text === "string") {
+        return data.output_text;
+    }
+
+    const parts = [];
+
+    for (const item of data?.output ?? []) {
+        for (const content of item?.content ?? []) {
+            if (content?.type === "output_text" && typeof content.text === "string") {
+                parts.push(content.text);
+            }
+        }
+    }
+
+    return parts.join("").trim();
 }
 
 function numberFromEnv(name, fallback) {
