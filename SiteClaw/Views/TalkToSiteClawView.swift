@@ -88,7 +88,7 @@ private struct VoiceHeroCard: View {
                 Button {
                     toggleRealtimeSession()
                 } label: {
-                    Label(isListening ? "Stop" : "Start", systemImage: isListening ? "stop.fill" : "mic.fill")
+                    Label(primaryActionTitle, systemImage: isListening ? "stop.fill" : "mic.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -192,6 +192,18 @@ private struct VoiceHeroCard: View {
         case "Backend Needed", "Realtime Error": SiteClawTheme.coral
         default: SiteClawTheme.sky
         }
+    }
+
+    private var primaryActionTitle: String {
+        if isListening {
+            return "Stop"
+        }
+
+        if studio.voiceProgress > 0, studio.voiceProgress < 1 {
+            return "Continue"
+        }
+
+        return "Start"
     }
 }
 

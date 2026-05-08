@@ -276,23 +276,40 @@ final class SiteClawStudio {
     }
 
     func startRealtimeSession() {
+        let shouldResumeVoiceCapture = !voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && voiceProgress > 0
+            && voiceProgress < 1
+            && voicePrompts.indices.contains(activeVoicePromptIndex)
+
         realtimeStatus = "Connecting"
-        realtimeConnectionDetail = "Requesting a short-lived Realtime token from the SiteClaw backend."
+        realtimeConnectionDetail = shouldResumeVoiceCapture
+            ? "Requesting a short-lived Realtime token so you can continue the current prompt."
+            : "Requesting a short-lived Realtime token from the SiteClaw backend."
         realtimeModel = ""
         realtimeVoice = ""
         realtimeSessionExpiresAt = nil
         realtimeAudioLevel = 0
         realtimeStreamedAudioBytes = 0
         realtimeAssistantReplyDraft = ""
-        activeVoicePromptIndex = 0
-        voicePrompts = VoiceOnboardingPrompt.samples
-        voiceTranscript = ""
-        messages.append(
-            BuilderMessage(
-                role: .assistant,
-                text: "Tell me your restaurant name, cuisine, hours, location, story, and three menu items."
+
+        if shouldResumeVoiceCapture {
+            messages.append(
+                BuilderMessage(
+                    role: .assistant,
+                    text: "Continue with: \(activeVoicePrompt.question)"
+                )
             )
-        )
+        } else {
+            activeVoicePromptIndex = 0
+            voicePrompts = VoiceOnboardingPrompt.samples
+            voiceTranscript = ""
+            messages.append(
+                BuilderMessage(
+                    role: .assistant,
+                    text: "Tell me your restaurant name, cuisine, hours, location, story, and three menu items."
+                )
+            )
+        }
     }
 
     func stopRealtimeSession() {
