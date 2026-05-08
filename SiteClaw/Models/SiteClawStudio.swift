@@ -455,6 +455,7 @@ final class SiteClawStudio {
     func captureCurrentVoicePrompt() {
         guard voicePrompts.indices.contains(activeVoicePromptIndex) else { return }
 
+        voiceTranscript = VoiceTranscriptNormalizer.normalize(voiceTranscript)
         let extraction = TranscriptRestaurantExtractor.extract(from: voiceTranscript)
         let answer = extraction.promptAnswers[activeVoicePromptIndex]
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -503,7 +504,8 @@ final class SiteClawStudio {
             return false
         }
 
-        let extraction = TranscriptRestaurantExtractor.extract(from: trimmedTranscript)
+        voiceTranscript = VoiceTranscriptNormalizer.normalize(trimmedTranscript)
+        let extraction = TranscriptRestaurantExtractor.extract(from: voiceTranscript)
         restaurant = extraction.profile
         voicePrompts = TranscriptRestaurantExtractor.makePrompts(from: extraction.promptAnswers)
         activeVoicePromptIndex = voicePrompts.firstIndex { $0.capturedAnswer.isEmpty }
