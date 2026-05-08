@@ -9,12 +9,14 @@ struct RealtimeSessionResponse: Decodable, Hashable {
     var clientSecret: String?
     var expiresAt: Int?
     var model: String?
+    var transcriptionModel: String?
     var voice: String?
 
     enum CodingKeys: String, CodingKey {
         case clientSecret = "client_secret"
         case expiresAt = "expires_at"
         case model
+        case transcriptionModel = "transcription_model"
         case voice
     }
 }

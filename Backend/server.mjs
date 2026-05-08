@@ -26,6 +26,7 @@ const server = http.createServer(async (req, res) => {
                 ok: true,
                 service: "siteclaw-backend",
                 realtime_model: realtimeModel(),
+                realtime_transcription_model: realtimeTranscriptionModel(),
                 generation_model: generationModel(),
             });
             return;
@@ -84,6 +85,28 @@ async function createRealtimeClientSecret(body) {
             instructions: siteClawInstructions(restaurantName),
             output_modalities: ["audio"],
             audio: {
+                input: {
+                    format: {
+                        type: "audio/pcm",
+                        rate: 24000,
+                    },
+                    noise_reduction: {
+                        type: "near_field",
+                    },
+                    transcription: {
+                        model: realtimeTranscriptionModel(),
+                        language: "en",
+                        prompt: "Restaurant names, cuisines, neighborhoods, business hours, menu item names, prices, and owner stories.",
+                    },
+                    turn_detection: {
+                        type: "server_vad",
+                        threshold: 0.5,
+                        prefix_padding_ms: 300,
+                        silence_duration_ms: 700,
+                        create_response: true,
+                        interrupt_response: true,
+                    },
+                },
                 output: {
                     voice: process.env.OPENAI_REALTIME_VOICE || "marin",
                 },
@@ -112,6 +135,7 @@ async function createRealtimeClientSecret(body) {
         expires_at: data.expires_at ?? data.client_secret?.expires_at ?? data.session?.client_secret?.expires_at,
         session: data.session,
         model: realtimeModel(),
+        transcription_model: realtimeTranscriptionModel(),
         voice: process.env.OPENAI_REALTIME_VOICE || "marin",
     };
 }
@@ -352,6 +376,10 @@ function sanitizeTextWithLimit(value, maxLength) {
 
 function realtimeModel() {
     return process.env.OPENAI_REALTIME_MODEL || "gpt-realtime";
+}
+
+function realtimeTranscriptionModel() {
+    return process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL || "gpt-realtime-whisper";
 }
 
 function generationModel() {

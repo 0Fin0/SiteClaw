@@ -15,7 +15,7 @@ This first version is a SwiftUI app with Mac and iOS targets. It has six main ta
 - JSON: generated `restaurant.json` data contract preview
 - Updates: voice-style quick updates for hours, menus, and announcements
 
-The AI, voice, and deployment behavior still has demo fallbacks so the project runs immediately in Xcode. The Talk tab can request a short-lived OpenAI Realtime session token from the local backend and can call the backend to generate structured website draft copy.
+The AI, voice, and deployment behavior still has demo fallbacks so the project runs immediately in Xcode. The Talk tab can request a short-lived OpenAI Realtime session token from the local backend, stream native microphone audio to OpenAI Realtime over WebSocket, capture live transcript turns, and call the backend to generate structured website draft copy.
 
 ## Tech Direction
 
@@ -89,7 +89,7 @@ curl -X POST http://localhost:8787/api/realtime/session \
   -d '{"restaurantName":"Pho Lotus Kitchen"}'
 ```
 
-Once the backend is running, press Start in the Talk tab to verify that the app can request a Realtime session token. If the backend is missing or `OPENAI_API_KEY` is not configured, the app shows the backend error in the Talk tab.
+Once the backend is running, press Start in the Talk tab to request a Realtime session token and begin streaming microphone audio. The app converts native mic input to 24 kHz PCM16 chunks, sends them with `input_audio_buffer.append`, and fills the transcript as Realtime transcription turns complete. If the backend is missing or `OPENAI_API_KEY` is not configured, the app shows the backend error in the Talk tab.
 
 Generate website draft copy:
 
@@ -104,7 +104,7 @@ The app's Generate Website Draft button calls this endpoint first, then falls ba
 ## Next Steps
 
 - Add real restaurant intake fields for menu editing
-- Add real OpenAI Realtime microphone streaming after the session-token handshake
+- Add Realtime assistant audio playback for spoken SiteClaw responses
 - Replace the single-file static export with the full Astro renderer
 - Add Cloudflare Pages publishing
 - Add collaborators through GitHub after the remote repository is published

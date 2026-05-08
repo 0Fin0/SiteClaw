@@ -47,7 +47,7 @@ curl -X POST http://localhost:8787/api/realtime/session \
   -d '{"restaurantName":"Pho Lotus Kitchen"}'
 ```
 
-The response includes a short-lived `client_secret` that the app can use to authenticate a Realtime connection.
+The response includes a short-lived `client_secret` that the app can use to authenticate a Realtime connection. The session is preconfigured for 24 kHz PCM microphone input, server voice activity detection, and live input transcription.
 
 Generate website draft copy:
 
@@ -72,6 +72,7 @@ The response includes structured draft fields for the app preview: headline, sub
 
 - `Backend/.env` is ignored by Git.
 - The default model is `gpt-realtime`.
+- The default Realtime transcription model is `gpt-realtime-whisper`; override it with `OPENAI_REALTIME_TRANSCRIPTION_MODEL`.
 - The default voice is `marin`.
 - The default token TTL is 600 seconds.
 - The default generation model is `gpt-5.4-mini`; override it with `OPENAI_GENERATION_MODEL`.

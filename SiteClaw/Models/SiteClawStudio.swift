@@ -20,6 +20,9 @@ final class SiteClawStudio {
     var realtimeModel: String
     var realtimeVoice: String
     var realtimeSessionExpiresAt: Date?
+    var realtimeAudioLevel: Double
+    var realtimeStreamedAudioBytes: Int
+    var realtimeAssistantReplyDraft: String
     var activeVoicePromptIndex: Int
     var isPublished: Bool
     var isDraftGenerated: Bool
@@ -40,6 +43,9 @@ final class SiteClawStudio {
         realtimeModel: String = "",
         realtimeVoice: String = "",
         realtimeSessionExpiresAt: Date? = nil,
+        realtimeAudioLevel: Double = 0,
+        realtimeStreamedAudioBytes: Int = 0,
+        realtimeAssistantReplyDraft: String = "",
         activeVoicePromptIndex: Int = 0,
         isPublished: Bool = false,
         isDraftGenerated: Bool = true,
@@ -59,6 +65,9 @@ final class SiteClawStudio {
         self.realtimeModel = realtimeModel
         self.realtimeVoice = realtimeVoice
         self.realtimeSessionExpiresAt = realtimeSessionExpiresAt
+        self.realtimeAudioLevel = realtimeAudioLevel
+        self.realtimeStreamedAudioBytes = realtimeStreamedAudioBytes
+        self.realtimeAssistantReplyDraft = realtimeAssistantReplyDraft
         self.activeVoicePromptIndex = activeVoicePromptIndex
         self.isPublished = isPublished
         self.isDraftGenerated = isDraftGenerated
@@ -272,8 +281,12 @@ final class SiteClawStudio {
         realtimeModel = ""
         realtimeVoice = ""
         realtimeSessionExpiresAt = nil
+        realtimeAudioLevel = 0
+        realtimeStreamedAudioBytes = 0
+        realtimeAssistantReplyDraft = ""
         activeVoicePromptIndex = 0
         voicePrompts = VoiceOnboardingPrompt.samples
+        voiceTranscript = ""
         messages.append(
             BuilderMessage(
                 role: .assistant,
@@ -283,8 +296,11 @@ final class SiteClawStudio {
     }
 
     func stopRealtimeSession() {
-        realtimeStatus = "Processing"
-        realtimeConnectionDetail = "Realtime session paused. You can continue with guided capture or generate from the transcript."
+        realtimeAudioLevel = 0
+        realtimeStatus = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Ready" : "Captured"
+        realtimeConnectionDetail = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Realtime session stopped before transcript text was captured."
+            : "Realtime session stopped. Generate a website draft from the captured transcript when you are ready."
     }
 
     func completeRealtimeSession(_ response: RealtimeSessionResponse) {
@@ -301,12 +317,91 @@ final class SiteClawStudio {
         )
     }
 
+    func beginRealtimeAudioStream(_ response: RealtimeSessionResponse) {
+        realtimeStatus = "Streaming"
+        realtimeModel = response.model ?? ""
+        realtimeVoice = response.voice ?? ""
+        realtimeSessionExpiresAt = response.expiresAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        realtimeAudioLevel = 0
+        realtimeStreamedAudioBytes = 0
+        realtimeAssistantReplyDraft = ""
+        realtimeConnectionDetail = "Realtime token is ready. Opening the microphone and WebSocket stream."
+    }
+
+    func handleRealtimeStreamEvent(_ event: RealtimeAudioStreamingEvent) {
+        switch event {
+        case .microphonePermissionGranted:
+            realtimeStatus = "Connecting"
+            realtimeConnectionDetail = "Microphone permission granted. Connecting to OpenAI Realtime."
+        case .webSocketConnected:
+            realtimeStatus = "Streaming"
+            realtimeConnectionDetail = "Realtime WebSocket connected. Speak naturally into the microphone."
+        case .sessionConfigured:
+            realtimeConnectionDetail = "Realtime session configured for 24 kHz PCM microphone input and live transcription."
+        case .microphoneStarted(let sampleRate, let channels):
+            realtimeStatus = "Listening"
+            realtimeConnectionDetail = "Microphone streaming started from \(channels) channel input at \(Int(sampleRate)) Hz."
+        case .audioLevel(let level):
+            realtimeAudioLevel = level
+        case .audioChunkSent(_, let totalBytes):
+            realtimeStreamedAudioBytes = totalBytes
+            realtimeStatus = "Listening"
+            realtimeConnectionDetail = "Streaming microphone audio to Realtime. Sent \(Self.byteCountFormatter.string(fromByteCount: Int64(totalBytes)))."
+        case .speechStarted:
+            realtimeStatus = "Listening"
+            realtimeConnectionDetail = "Speech detected. Keep answering the current SiteClaw prompt."
+        case .speechStopped:
+            realtimeStatus = "Processing"
+            realtimeConnectionDetail = "Realtime detected a pause and is committing this answer."
+        case .inputCommitted:
+            realtimeStatus = "Transcribing"
+            realtimeConnectionDetail = "Audio turn committed. Waiting for transcript text."
+        case .inputTranscriptDelta(let delta):
+            guard !delta.isEmpty else { return }
+            realtimeStatus = "Transcribing"
+            realtimeConnectionDetail = "Live transcript: \(delta)"
+        case .inputTranscriptCompleted(let transcript):
+            captureRealtimeTranscript(transcript)
+        case .assistantTranscriptDelta(let delta):
+            guard !delta.isEmpty else { return }
+            realtimeAssistantReplyDraft += delta
+            realtimeStatus = "SiteClaw Replying"
+            realtimeConnectionDetail = realtimeAssistantReplyDraft
+        case .assistantTranscriptCompleted(let transcript):
+            let finalReply = transcript.isEmpty ? realtimeAssistantReplyDraft : transcript
+            if !finalReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                messages.append(BuilderMessage(role: .assistant, text: finalReply))
+            }
+            realtimeAssistantReplyDraft = ""
+            realtimeStatus = "Listening"
+            realtimeConnectionDetail = "SiteClaw reply captured as text. Audio playback comes next."
+        case .responseCompleted:
+            if !realtimeAssistantReplyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                messages.append(BuilderMessage(role: .assistant, text: realtimeAssistantReplyDraft))
+                realtimeAssistantReplyDraft = ""
+            }
+        case .disconnected:
+            realtimeAudioLevel = 0
+            realtimeStatus = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Ready" : "Captured"
+            realtimeConnectionDetail = "Realtime stream closed."
+        case .warning(let message):
+            realtimeConnectionDetail = message
+        case .error(let message):
+            realtimeStatus = "Realtime Error"
+            realtimeConnectionDetail = message
+            realtimeAudioLevel = 0
+        }
+    }
+
     func failRealtimeSession(_ error: Error) {
         realtimeStatus = "Backend Needed"
         realtimeConnectionDetail = error.localizedDescription
         realtimeModel = ""
         realtimeVoice = ""
         realtimeSessionExpiresAt = nil
+        realtimeAudioLevel = 0
+        realtimeStreamedAudioBytes = 0
+        realtimeAssistantReplyDraft = ""
         messages.append(
             BuilderMessage(
                 role: .assistant,
@@ -342,6 +437,9 @@ final class SiteClawStudio {
         realtimeModel = ""
         realtimeVoice = ""
         realtimeSessionExpiresAt = nil
+        realtimeAudioLevel = 0
+        realtimeStreamedAudioBytes = 0
+        realtimeAssistantReplyDraft = ""
         activeVoicePromptIndex = 0
     }
 
@@ -369,6 +467,31 @@ final class SiteClawStudio {
         }
     }
 
+    private func captureRealtimeTranscript(_ transcript: String) {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        appendTranscriptAnswer(trimmed)
+        messages.append(BuilderMessage(role: .owner, text: trimmed))
+
+        if voicePrompts.indices.contains(activeVoicePromptIndex),
+           voicePrompts[activeVoicePromptIndex].capturedAnswer.isEmpty {
+            voicePrompts[activeVoicePromptIndex].capturedAnswer = trimmed
+
+            if activeVoicePromptIndex < voicePrompts.count - 1 {
+                activeVoicePromptIndex += 1
+                realtimeStatus = "Listening"
+                realtimeConnectionDetail = "Captured that answer. Continue with the next prompt."
+            } else {
+                realtimeStatus = "Captured"
+                realtimeConnectionDetail = "All guided answers have transcript text. Generate the website draft when ready."
+            }
+        } else {
+            realtimeStatus = "Captured"
+            realtimeConnectionDetail = "Transcript captured from the live Realtime stream."
+        }
+    }
+
     private func addUpdate(type: SiteUpdate.UpdateType, title: String, detail: String, timeLabel: String) {
         updates.insert(
             SiteUpdate(type: type, title: title, detail: detail, timeLabel: timeLabel),
@@ -385,6 +508,13 @@ final class SiteClawStudio {
 
         return "https://\(slug.isEmpty ? "restaurant" : slug).siteclaw.app"
     }
+
+    private static let byteCountFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        formatter.countStyle = .file
+        return formatter
+    }()
 }
 
 extension RestaurantProfile {

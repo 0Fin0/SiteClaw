@@ -42,11 +42,12 @@ private struct VoiceHeroCard: View {
     @Bindable var studio: SiteClawStudio
     @Binding var isListening: Bool
     @State private var sessionTask: Task<Void, Never>?
+    @State private var realtimeAudioStreamer: RealtimeAudioStreamingService?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 16) {
-                VoiceOrb(isListening: isListening)
+                VoiceOrb(isListening: isListening, audioLevel: studio.realtimeAudioLevel)
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Build by Voice")
@@ -94,8 +95,7 @@ private struct VoiceHeroCard: View {
                 .tint(isListening ? SiteClawTheme.coral : SiteClawTheme.navy)
 
                 Button {
-                    sessionTask?.cancel()
-                    isListening = false
+                    stopRealtimeStreaming()
                     studio.loadVoiceExample()
                 } label: {
                     Label("Demo", systemImage: "play.fill")
@@ -105,7 +105,7 @@ private struct VoiceHeroCard: View {
             }
         }
         .onDisappear {
-            sessionTask?.cancel()
+            stopRealtimeStreaming()
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,10 +119,7 @@ private struct VoiceHeroCard: View {
 
     private func toggleRealtimeSession() {
         if isListening {
-            sessionTask?.cancel()
-            sessionTask = nil
-            isListening = false
-            studio.stopRealtimeSession()
+            stopRealtimeStreaming()
             return
         }
 
@@ -135,27 +132,56 @@ private struct VoiceHeroCard: View {
                 let response = try await RealtimeSessionService().createSession(restaurantName: restaurantName)
                 guard !Task.isCancelled else { return }
 
+                let streamer = await MainActor.run {
+                    studio.beginRealtimeAudioStream(response)
+                    let streamer = RealtimeAudioStreamingService()
+                    realtimeAudioStreamer = streamer
+                    return streamer
+                }
+
+                try await streamer.start(session: response, restaurantName: restaurantName) { event in
+                    Task { @MainActor in
+                        studio.handleRealtimeStreamEvent(event)
+                    }
+                }
+
+                guard !Task.isCancelled else { return }
+
                 await MainActor.run {
-                    studio.completeRealtimeSession(response)
+                    isListening = false
+                    realtimeAudioStreamer = nil
+                    studio.stopRealtimeSession()
                 }
             } catch {
                 guard !Task.isCancelled else { return }
 
                 await MainActor.run {
                     isListening = false
+                    realtimeAudioStreamer?.stop()
+                    realtimeAudioStreamer = nil
                     studio.failRealtimeSession(error)
                 }
             }
         }
     }
 
+    private func stopRealtimeStreaming() {
+        guard isListening || sessionTask != nil || realtimeAudioStreamer != nil else { return }
+        sessionTask?.cancel()
+        sessionTask = nil
+        realtimeAudioStreamer?.stop()
+        realtimeAudioStreamer = nil
+        isListening = false
+        studio.stopRealtimeSession()
+    }
+
     private var statusColor: Color {
         switch studio.realtimeStatus {
-        case "Connecting", "Processing": SiteClawTheme.gold
+        case "Connecting", "Processing", "Transcribing", "SiteClaw Replying": SiteClawTheme.gold
         case "Token Ready", "Generated": SiteClawTheme.mint
-        case "Listening": SiteClawTheme.coral
+        case "Streaming", "Listening": SiteClawTheme.coral
         case "Captured": SiteClawTheme.sky
-        case "Backend Needed": SiteClawTheme.coral
+        case "Backend Needed", "Realtime Error": SiteClawTheme.coral
         default: SiteClawTheme.sky
         }
     }
@@ -163,22 +189,30 @@ private struct VoiceHeroCard: View {
 
 private struct VoiceOrb: View {
     let isListening: Bool
+    let audioLevel: Double
 
     var body: some View {
         ZStack {
             Circle()
                 .fill(isListening ? SiteClawTheme.coral.opacity(0.18) : SiteClawTheme.navy.opacity(0.12))
-                .frame(width: 78, height: 78)
+                .frame(width: 82, height: 82)
 
             Circle()
                 .stroke(isListening ? SiteClawTheme.coral.opacity(0.45) : SiteClawTheme.navy.opacity(0.18), lineWidth: 8)
-                .frame(width: isListening ? 72 : 58, height: isListening ? 72 : 58)
+                .frame(width: ringSize, height: ringSize)
 
             Image(systemName: isListening ? "waveform" : "mic.fill")
                 .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(isListening ? SiteClawTheme.coral : SiteClawTheme.navy)
         }
+        .frame(width: 86, height: 86)
         .animation(.easeInOut(duration: 0.25), value: isListening)
+        .animation(.easeOut(duration: 0.12), value: audioLevel)
+    }
+
+    private var ringSize: CGFloat {
+        guard isListening else { return 58 }
+        return 66 + CGFloat(min(max(audioLevel, 0), 1)) * 16
     }
 }
 
@@ -294,7 +328,7 @@ private struct TranscriptEditor: View {
         VStack(spacing: 12) {
             SectionHeader(
                 title: "Transcript",
-                subtitle: "This becomes live speech text when we connect OpenAI Realtime."
+                subtitle: "Live speech text from OpenAI Realtime appears here as turns are committed."
             )
 
             ClawCard {
