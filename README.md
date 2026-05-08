@@ -11,7 +11,7 @@ This first version is a SwiftUI app with Mac and iOS targets. It has six main ta
 - Talk: voice-onboarding prototype for capturing the owner conversation
 - Build: restaurant intake and AI-style onboarding conversation
 - Dashboard: launch readiness, MVP checklist, recent activity, and publish status
-- Preview: generated restaurant website mockup
+- Preview: generated restaurant website mockup plus static `index.html` export
 - JSON: generated `restaurant.json` data contract preview
 - Updates: voice-style quick updates for hours, menus, and announcements
 
@@ -96,5 +96,6 @@ Once the backend is running, press Start in the Talk tab to verify that the app 
 - Add real restaurant intake fields for menu editing
 - Add real OpenAI Realtime microphone streaming after the session-token handshake
 - Add a backend endpoint for AI generation
-- Add generated-site export or Cloudflare Pages publishing
+- Replace the single-file static export with the full Astro renderer
+- Add Cloudflare Pages publishing
 - Add collaborators through GitHub after the remote repository is published

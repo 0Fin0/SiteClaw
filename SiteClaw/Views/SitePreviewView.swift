@@ -4,9 +4,16 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
+
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct SitePreviewView: View {
-    let studio: SiteClawStudio
+    @Bindable var studio: SiteClawStudio
 
     var body: some View {
         NavigationStack {
@@ -19,6 +26,8 @@ struct SitePreviewView: View {
 
                     RestaurantWebsiteMock(studio: studio)
 
+                    StaticSiteExportCard(studio: studio)
+
                     SEOSection(draft: studio.draft)
                 }
                 .padding(16)
@@ -26,6 +35,131 @@ struct SitePreviewView: View {
             .background(SiteClawTheme.background.ignoresSafeArea())
             .navigationTitle("Preview")
         }
+    }
+}
+
+private struct StaticSiteExportCard: View {
+    @Bindable var studio: SiteClawStudio
+    @State private var exportDocument = SiteExportDocument()
+    @State private var isExportingHTML = false
+    @State private var didCopyHTML = false
+    @State private var exportMessage: String?
+
+    var body: some View {
+        ClawCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Static Site Export")
+                            .font(.title2.bold())
+                        Text(studio.siteExportDetail)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "shippingbox.fill")
+                        .font(.title2)
+                        .foregroundStyle(SiteClawTheme.coral)
+                }
+
+                HStack {
+                    ExportMetric(title: "File", value: "index.html")
+                    ExportMetric(title: "Slug", value: studio.siteExport.slug)
+                    ExportMetric(title: "Size", value: studio.siteExport.sizeLabel)
+                }
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    Button {
+                        studio.prepareSiteExport()
+                        exportMessage = "Static site export prepared."
+                    } label: {
+                        Label("Prepare", systemImage: "hammer.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        saveHTML()
+                    } label: {
+                        Label("Save HTML", systemImage: "square.and.arrow.down")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(SiteClawTheme.coral)
+
+                    Button {
+                        copyHTML()
+                    } label: {
+                        Label(didCopyHTML ? "Copied" : "Copy HTML", systemImage: didCopyHTML ? "checkmark" : "doc.on.doc")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if let exportMessage {
+                    Text(exportMessage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(SiteClawTheme.mint)
+                }
+            }
+        }
+        .fileExporter(
+            isPresented: $isExportingHTML,
+            document: exportDocument,
+            contentType: .html,
+            defaultFilename: studio.siteExport.defaultFilename
+        ) { result in
+            switch result {
+            case .success:
+                exportMessage = "HTML file saved."
+            case .failure(let error):
+                exportMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func saveHTML() {
+        let export = studio.siteExport
+        studio.prepareSiteExport()
+        exportDocument = SiteExportDocument(text: export.html)
+        isExportingHTML = true
+    }
+
+    private func copyHTML() {
+        let html = studio.siteExport.html
+        studio.prepareSiteExport()
+
+        #if os(iOS)
+        UIPasteboard.general.string = html
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(html, forType: .string)
+        #endif
+
+        didCopyHTML = true
+        exportMessage = "HTML copied."
+    }
+}
+
+private struct ExportMetric: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.headline)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(SiteClawTheme.ink)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

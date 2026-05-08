@@ -24,6 +24,8 @@ final class SiteClawStudio {
     var isPublished: Bool
     var isDraftGenerated: Bool
     var monthlyPrice: Int
+    var siteExportStatus: String
+    var lastSiteExportedAt: Date?
 
     init(
         restaurant: RestaurantProfile,
@@ -41,7 +43,9 @@ final class SiteClawStudio {
         activeVoicePromptIndex: Int = 0,
         isPublished: Bool = false,
         isDraftGenerated: Bool = true,
-        monthlyPrice: Int = 19
+        monthlyPrice: Int = 19,
+        siteExportStatus: String = "No static export prepared yet.",
+        lastSiteExportedAt: Date? = nil
     ) {
         self.restaurant = restaurant
         self.draft = draft
@@ -59,6 +63,8 @@ final class SiteClawStudio {
         self.isPublished = isPublished
         self.isDraftGenerated = isDraftGenerated
         self.monthlyPrice = monthlyPrice
+        self.siteExportStatus = siteExportStatus
+        self.lastSiteExportedAt = lastSiteExportedAt
     }
 
     var publishStatus: String {
@@ -121,6 +127,18 @@ final class SiteClawStudio {
         RestaurantJSONExporter.prettyJSONString(from: restaurantJSON)
     }
 
+    var siteExport: GeneratedSiteExport {
+        GeneratedSiteRenderer.makeExport(from: restaurantJSON, draft: draft)
+    }
+
+    var siteExportDetail: String {
+        guard let lastSiteExportedAt else {
+            return siteExportStatus
+        }
+
+        return "\(siteExportStatus) Prepared \(lastSiteExportedAt.formatted(date: .omitted, time: .shortened))."
+    }
+
     func generateDraft() {
         let restaurantName = restaurant.name.isEmpty ? "your restaurant" : restaurant.name
         let cuisine = restaurant.cuisine.isEmpty ? "local food" : restaurant.cuisine
@@ -155,10 +173,23 @@ final class SiteClawStudio {
 
     func publishDraft() {
         isPublished = true
+        prepareSiteExport()
         addUpdate(
             type: .publish,
             title: "Site published",
             detail: "\(restaurant.name) is live at \(draft.url)",
+            timeLabel: "Just now"
+        )
+    }
+
+    func prepareSiteExport() {
+        let export = siteExport
+        lastSiteExportedAt = Date()
+        siteExportStatus = "\(export.defaultFilename).html is ready to save or hand to the renderer."
+        addUpdate(
+            type: .publish,
+            title: "Static site export prepared",
+            detail: "Generated \(export.sizeLabel) of HTML from restaurant.json.",
             timeLabel: "Just now"
         )
     }
