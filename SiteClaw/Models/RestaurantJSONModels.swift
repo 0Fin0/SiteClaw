@@ -121,7 +121,12 @@ struct RestaurantJSONBranding: Codable, Hashable, Sendable {
 
 enum RestaurantJSONExporter {
     static func makeRestaurantJSON(from restaurant: RestaurantProfile, draft: WebsiteDraft) -> RestaurantJSON {
-        let name = restaurant.name.isEmpty ? "Unnamed Restaurant" : restaurant.name
+        let name = RestaurantNameResolver.displayName(
+            restaurantName: restaurant.name,
+            headline: draft.headline,
+            seoKeywords: draft.seoKeywords,
+            fallback: "Restaurant"
+        )
         let city = restaurant.neighborhood
         let cuisine = restaurant.cuisine.isEmpty ? "Local Restaurant" : restaurant.cuisine
         let hasOwnerProvidedPrices = restaurant.menuItems.contains { ($0.price ?? 0) > 0 }
@@ -301,5 +306,90 @@ enum RestaurantJSONExporter {
         }
 
         return String(format: "%02d:%02d", hour, minute)
+    }
+}
+
+enum RestaurantNameResolver {
+    static func displayName(
+        restaurantName: String,
+        headline: String,
+        seoKeywords: [String],
+        fallback: String
+    ) -> String {
+        let trimmedName = restaurantName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isUsableName(trimmedName) {
+            return titleCasedName(trimmedName)
+        }
+
+        for keyword in seoKeywords {
+            if let inferredName = inferredName(from: keyword) {
+                return inferredName
+            }
+        }
+
+        if let inferredName = inferredName(from: headline) {
+            return inferredName
+        }
+
+        return fallback
+    }
+
+    static func inferredName(from text: String) -> String? {
+        let patterns = [
+            #"^([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){0,5}\s+(?:Kitchen|Cafe|Coffee|Bakery|Grill|Restaurant|Diner|Bistro|Taqueria|Pizzeria|Bar|House|Market|Deli|Truck))\b"#,
+            #"^([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){1,5})(?=\s+(?:brings|serves|offers|is|has)\b)"#
+        ]
+
+        for pattern in patterns {
+            guard let candidate = firstMatch(pattern, in: text),
+                  isUsableName(candidate) else {
+                continue
+            }
+
+            return titleCasedName(candidate)
+        }
+
+        return nil
+    }
+
+    private static func isUsableName(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercased = trimmed.lowercased()
+        let genericNames = [
+            "", "restaurant", "unnamed restaurant", "local restaurant", "vietnamese restaurant",
+            "mexican restaurant", "italian restaurant", "chinese restaurant", "thai restaurant",
+            "japanese restaurant", "korean restaurant", "indian restaurant", "american restaurant"
+        ]
+
+        return !genericNames.contains(lowercased)
+            && !lowercased.contains(" near me")
+            && !lowercased.contains(" in ")
+    }
+
+    private static func titleCasedName(_ value: String) -> String {
+        value
+            .split(separator: " ")
+            .map { word in
+                let lowercased = word.lowercased()
+                if lowercased == "pho" { return "Pho" }
+                if lowercased == "bbq" { return "BBQ" }
+                return lowercased.prefix(1).uppercased() + String(lowercased.dropFirst())
+            }
+            .joined(separator: " ")
+    }
+
+    private static func firstMatch(_ pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              match.numberOfRanges > 1,
+              let matchRange = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+
+        return String(text[matchRange]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

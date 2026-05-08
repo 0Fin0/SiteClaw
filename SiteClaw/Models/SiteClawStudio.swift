@@ -183,7 +183,18 @@ final class SiteClawStudio {
     }
 
     func applyGeneratedDraft(_ response: SiteGenerationResponse) {
-        let restaurantName = restaurant.name.isEmpty ? "your restaurant" : restaurant.name
+        let generatedRestaurantName = RestaurantNameResolver.displayName(
+            restaurantName: restaurant.name,
+            headline: response.draft.headline,
+            seoKeywords: response.draft.seoKeywords,
+            fallback: ""
+        )
+        let restaurantName = generatedRestaurantName.isEmpty ? "your restaurant" : generatedRestaurantName
+
+        if restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !generatedRestaurantName.isEmpty {
+            restaurant.name = generatedRestaurantName
+        }
 
         draft = WebsiteDraft(
             headline: response.draft.headline,
@@ -648,7 +659,7 @@ private enum TranscriptRestaurantExtractor {
 
     private static func extractName(from transcript: String) -> String {
         let patterns = [
-            #"\b(?:called|named)\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+we\s+|\s+we're\s+|\s+open\s+|\s+serve\s+|\s+serves\s+|$)"#,
+            #"\b(?:called|named)\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|is\s+(?:a|an|family)|we\s+|we're\s+|open\s+|serve\s+|serves\s+|in\s+[A-Z])|$)"#,
             #"\b([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){1,5}\s+(?:Kitchen|Cafe|Coffee|Bakery|Grill|Restaurant|Diner|Bistro|Taqueria|Pizzeria|Bar))\b"#,
             #"\b(?:we are|we're|my restaurant is|the restaurant is)\s+([A-Za-z0-9&' .-]{2,80}?)(?=,|\.|\s+in\s+|\s+serves\s+|\s+serve\s+|\s+is\s+|$)"#
         ]
@@ -823,6 +834,11 @@ private enum TranscriptRestaurantExtractor {
 
     private static func cleanNameCandidate(_ candidate: String) -> String? {
         let trimmed = candidate
+            .replacingOccurrences(
+                of: #"\s+\b(?:it\s+is|it's|it’s|is\s+(?:a|an|family)|we\s+|we're\s+|open\s+|serve\s+|serves\s+|in\s+[A-Z]).*$"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
             .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".:;")))
         let lowercased = trimmed.lowercased()
         let invalidNameWords = [
