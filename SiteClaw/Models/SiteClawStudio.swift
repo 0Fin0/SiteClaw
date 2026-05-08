@@ -605,6 +605,7 @@ enum VoiceTranscriptNormalizer {
             .replacingOccurrences(of: #"\bfa rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bpho rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bfo lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(?:buh|boh|bo|poh|fuh)\s+lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bphone lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\ba\.?\s*m\.?"#, with: "AM", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bp\.?\s*m\.?"#, with: "PM", options: [.regularExpression, .caseInsensitive])
@@ -741,14 +742,27 @@ private enum TranscriptRestaurantExtractor {
 
     private static func extractHours(from transcript: String) -> String {
         let dayWords = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "mon-", "daily"]
-        let candidates = sentences(from: transcript).filter { sentence in
+        let transcriptSentences = sentences(from: transcript)
+        var candidates: [String] = []
+
+        for (index, sentence) in transcriptSentences.enumerated() {
             let lowercased = sentence.lowercased()
-            return lowercased.contains("open")
+            let isHoursCandidate = lowercased.contains("open")
                 || lowercased.contains("hours")
                 || dayWords.contains(where: lowercased.contains)
+
+            guard isHoursCandidate else { continue }
+
+            if !hasTimeRange(sentence),
+               transcriptSentences.indices.contains(index + 1),
+               hasTimeRange(transcriptSentences[index + 1]) {
+                candidates.append("\(sentence) \(transcriptSentences[index + 1])")
+            } else {
+                candidates.append(sentence)
+            }
         }
 
-        guard let candidate = candidates.first else { return "" }
+        guard let candidate = candidates.first(where: { hasTimeRange($0) }) ?? candidates.first else { return "" }
 
         let cleaned = candidate
             .replacingOccurrences(of: #"\b(?:we are|we're|we)\s+open\b"#, with: "", options: [.regularExpression, .caseInsensitive])
@@ -829,20 +843,46 @@ private enum TranscriptRestaurantExtractor {
 
     private static func extractStory(from transcript: String) -> String {
         let preferredWords = ["family-owned", "family owned", "special", "recipe", "broth", "owner", "neighborhood"]
+        let transcriptSentences = sentences(from: transcript)
 
-        guard let sentence = sentences(from: transcript).first(where: { sentence in
+        for sentence in transcriptSentences {
+            if let explicitStory = firstMatch(
+                #"\b(?:what makes (?:us|this|our restaurant)? special is|makes us special is|our story is)\s+(.+)$"#,
+                in: sentence
+            ),
+                let cleaned = cleanStoryCandidate(explicitStory) {
+                return cleaned
+            }
+        }
+
+        guard let sentence = transcriptSentences.first(where: { sentence in
             let lowercased = sentence.lowercased()
-            return preferredWords.contains(where: lowercased.contains)
+            return !lowercased.contains("called")
+                && preferredWords.contains(where: lowercased.contains)
         }) else {
             return ""
         }
 
-        let cleaned = sentence
+        return cleanStoryCandidate(sentence) ?? ""
+    }
+
+    private static func cleanStoryCandidate(_ candidate: String) -> String? {
+        let cleaned = candidate
             .replacingOccurrences(of: #"^for\s+"#, with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"^.*\b(?:it\s+is|it's|it’s)\s+"#, with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(
+                of: #"^.*\b(?:what makes (?:us|this|our restaurant)? special is|makes us special is|our story is)\s+"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
             .replacingOccurrences(of: #"family owned"#, with: "family-owned", options: [.regularExpression, .caseInsensitive])
-            .replacingOccurrences(of: #"\s+called\s+.+$"#, with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard cleaned.count >= 6,
+              !cleaned.lowercased().contains("called") else {
+            return nil
+        }
 
         return cleaned.prefix(1).uppercased() + String(cleaned.dropFirst())
     }
@@ -901,6 +941,13 @@ private enum TranscriptRestaurantExtractor {
             .components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    private static func hasTimeRange(_ text: String) -> Bool {
+        text.range(
+            of: #"\d{1,2}(?::\d{2})?\s*(?:AM|PM)?\s*(?:-|–|to)\s*\d{1,2}(?::\d{2})?\s*(?:AM|PM)?"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 
     private static func joinedNonEmpty(_ parts: [String]) -> String {
