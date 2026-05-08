@@ -83,6 +83,14 @@ final class SiteClawStudio {
         return "Step \(min(activeVoicePromptIndex + 1, voicePrompts.count)) of \(voicePrompts.count)"
     }
 
+    var restaurantJSON: RestaurantJSON {
+        RestaurantJSONExporter.makeRestaurantJSON(from: restaurant, draft: draft)
+    }
+
+    var restaurantJSONString: String {
+        RestaurantJSONExporter.prettyJSONString(from: restaurantJSON)
+    }
+
     func generateDraft() {
         let restaurantName = restaurant.name.isEmpty ? "your restaurant" : restaurant.name
         let cuisine = restaurant.cuisine.isEmpty ? "local food" : restaurant.cuisine

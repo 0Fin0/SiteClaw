@@ -30,6 +30,11 @@ struct SiteClawRootView: View {
                     Label("Preview", systemImage: "iphone")
                 }
 
+            RestaurantJSONView(studio: studio)
+                .tabItem {
+                    Label("JSON", systemImage: "curlybraces")
+                }
+
             QuickUpdatesView(studio: studio)
                 .tabItem {
                     Label("Updates", systemImage: "mic.fill")
