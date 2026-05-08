@@ -605,7 +605,7 @@ enum VoiceTranscriptNormalizer {
             .replacingOccurrences(of: #"\bfa rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bpho rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bfo lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
-            .replacingOccurrences(of: #"\b(?:buh|boh|bo|poh|fuh)\s+lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(?:pha|pah|fa|fah|buh|boh|bo|poh|fuh)\s+lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bphone lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\ba\.?\s*m\.?"#, with: "AM", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bp\.?\s*m\.?"#, with: "PM", options: [.regularExpression, .caseInsensitive])
