@@ -389,34 +389,110 @@ final class RealtimeAudioStreamingService {
     }
 
     nonisolated private static func makePCM16Data(from buffer: AVAudioPCMBuffer) throws -> Data {
-        guard let outputFormat = AVAudioFormat(
-            commonFormat: .pcmFormatInt16,
-            sampleRate: 24000,
-            channels: 1,
-            interleaved: true
-        ),
-            let converter = AVAudioConverter(from: buffer.format, to: outputFormat)
-        else {
+        let inputFrameCount = Int(buffer.frameLength)
+        let inputChannelCount = Int(buffer.format.channelCount)
+        let inputSampleRate = buffer.format.sampleRate
+        let outputSampleRate = 24000.0
+
+        guard inputFrameCount > 0, inputChannelCount > 0, inputSampleRate > 0 else {
             throw RealtimeAudioStreamingError.audioConversionFailed
         }
 
-        let ratio = outputFormat.sampleRate / buffer.format.sampleRate
-        let frameCapacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 1
+        let outputFrameCount = max(1, Int((Double(inputFrameCount) * outputSampleRate / inputSampleRate).rounded(.up)))
+        var data = Data()
+        data.reserveCapacity(outputFrameCount * MemoryLayout<Int16>.size)
 
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: frameCapacity) else {
+        for outputFrame in 0..<outputFrameCount {
+            let sourceFrame = min(
+                inputFrameCount - 1,
+                Int((Double(outputFrame) * inputSampleRate / outputSampleRate).rounded(.down))
+            )
+            let sample = try averagedSample(
+                from: buffer,
+                frame: sourceFrame,
+                channelCount: inputChannelCount
+            )
+            let clampedSample = max(-1, min(1, sample))
+            let scaledSample = (clampedSample * Float(Int16.max)).rounded()
+            var pcmSample = Int16(scaledSample).littleEndian
+
+            withUnsafeBytes(of: &pcmSample) { bytes in
+                data.append(contentsOf: bytes)
+            }
+        }
+
+        return data
+    }
+
+    nonisolated private static func averagedSample(
+        from buffer: AVAudioPCMBuffer,
+        frame: Int,
+        channelCount: Int
+    ) throws -> Float {
+        switch buffer.format.commonFormat {
+        case .pcmFormatFloat32:
+            try averagedSample(from: buffer, frame: frame, channelCount: channelCount, as: Float.self) { sample in
+                sample
+            }
+        case .pcmFormatFloat64:
+            try averagedSample(from: buffer, frame: frame, channelCount: channelCount, as: Double.self) { sample in
+                Float(sample)
+            }
+        case .pcmFormatInt16:
+            try averagedSample(from: buffer, frame: frame, channelCount: channelCount, as: Int16.self) { sample in
+                Float(sample) / Float(Int16.max)
+            }
+        case .pcmFormatInt32:
+            try averagedSample(from: buffer, frame: frame, channelCount: channelCount, as: Int32.self) { sample in
+                Float(sample) / Float(Int32.max)
+            }
+        default:
+            throw RealtimeAudioStreamingError.audioConversionFailed
+        }
+    }
+
+    nonisolated private static func averagedSample<Sample>(
+        from buffer: AVAudioPCMBuffer,
+        frame: Int,
+        channelCount: Int,
+        as sampleType: Sample.Type,
+        convert: (Sample) -> Float
+    ) throws -> Float {
+        let audioBuffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+        guard !audioBuffers.isEmpty else {
             throw RealtimeAudioStreamingError.audioConversionFailed
         }
 
-        try converter.convert(to: outputBuffer, from: buffer)
-
-        let audioBuffer = outputBuffer.audioBufferList.pointee.mBuffers
-        guard let audioData = audioBuffer.mData else {
+        let usableChannelCount = min(channelCount, audioBuffers.count == 1 ? channelCount : audioBuffers.count)
+        guard usableChannelCount > 0 else {
             throw RealtimeAudioStreamingError.audioConversionFailed
         }
 
-        let bytesPerFrame = Int(outputFormat.streamDescription.pointee.mBytesPerFrame)
-        let byteCount = Int(outputBuffer.frameLength) * bytesPerFrame
-        return Data(bytes: audioData, count: byteCount)
+        var sum: Float = 0
+
+        if audioBuffers.count == 1 {
+            guard let rawData = audioBuffers[0].mData else {
+                throw RealtimeAudioStreamingError.audioConversionFailed
+            }
+
+            let samples = rawData.assumingMemoryBound(to: sampleType)
+            let frameOffset = frame * channelCount
+
+            for channel in 0..<usableChannelCount {
+                sum += convert(samples[frameOffset + channel])
+            }
+        } else {
+            for channel in 0..<usableChannelCount {
+                guard let rawData = audioBuffers[channel].mData else {
+                    throw RealtimeAudioStreamingError.audioConversionFailed
+                }
+
+                let samples = rawData.assumingMemoryBound(to: sampleType)
+                sum += convert(samples[frame])
+            }
+        }
+
+        return sum / Float(usableChannelCount)
     }
 
     nonisolated private static func audioLevel(from buffer: AVAudioPCMBuffer) -> Double {
