@@ -10,6 +10,13 @@ import Observation
 final class SiteClawStudio {
     var restaurant: RestaurantProfile
     var draft: WebsiteDraft
+    var account: SiteClawAccount
+    var subscription: SiteClawSubscription
+    var gatewayEndpoints: [SiteClawGatewayEndpoint]
+    var secretBoundary: [SiteClawSecretBoundary]
+    var accountStatus: String
+    var billingStatus: String
+    var pendingBillingURL: URL?
     var messages: [BuilderMessage]
     var updates: [SiteUpdate]
     var metrics: [DashboardMetric]
@@ -33,6 +40,13 @@ final class SiteClawStudio {
     init(
         restaurant: RestaurantProfile,
         draft: WebsiteDraft,
+        account: SiteClawAccount = SiteClawMock.account,
+        subscription: SiteClawSubscription = SiteClawMock.subscription,
+        gatewayEndpoints: [SiteClawGatewayEndpoint] = SiteClawMock.gatewayEndpoints,
+        secretBoundary: [SiteClawSecretBoundary] = SiteClawMock.secretBoundary,
+        accountStatus: String = "Signed in with local mock auth.",
+        billingStatus: String = "Billing is mocked until Stripe checkout routes are wired.",
+        pendingBillingURL: URL? = nil,
         messages: [BuilderMessage],
         updates: [SiteUpdate],
         metrics: [DashboardMetric],
@@ -55,6 +69,13 @@ final class SiteClawStudio {
     ) {
         self.restaurant = restaurant
         self.draft = draft
+        self.account = account
+        self.subscription = subscription
+        self.gatewayEndpoints = gatewayEndpoints
+        self.secretBoundary = secretBoundary
+        self.accountStatus = accountStatus
+        self.billingStatus = billingStatus
+        self.pendingBillingURL = pendingBillingURL
         self.messages = messages
         self.updates = updates
         self.metrics = metrics
@@ -78,6 +99,30 @@ final class SiteClawStudio {
 
     var publishStatus: String {
         isPublished ? "Live" : isDraftGenerated ? "Ready to publish" : "Draft needed"
+    }
+
+    var accountDisplayName: String {
+        if !account.ownerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return account.ownerName
+        }
+
+        if !restaurant.ownerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return restaurant.ownerName
+        }
+
+        return "Restaurant Owner"
+    }
+
+    var billingRenewalLabel: String {
+        guard let currentPeriodEnd = subscription.currentPeriodEnd else {
+            return subscription.plan == .founding ? "No renewal date" : "Renewal not set"
+        }
+
+        return currentPeriodEnd.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    var canUseCustomerPortal: Bool {
+        account.isAuthenticated && subscription.stripeCustomerID != nil
     }
 
     var completionPercent: Int {
@@ -275,6 +320,113 @@ final class SiteClawStudio {
             detail: "AI created a first version of the site from the owner conversation.",
             timeLabel: "Just now"
         )
+    }
+
+    func signInWithMockGateway(email: String, restaurantName: String) async {
+        do {
+            let gateway = MockSiteClawGateway()
+            account = try await gateway.signIn(email: email, restaurantName: restaurantName)
+            if restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                restaurant.name = restaurantName
+            }
+            accountStatus = "Signed in as \(account.email) with mock gateway auth."
+        } catch {
+            accountStatus = error.localizedDescription
+        }
+    }
+
+    func startProductionSignIn(email: String, restaurantName: String) async {
+        do {
+            let gateway = ProductionSiteClawGateway()
+            account = try await gateway.signIn(email: email, restaurantName: restaurantName)
+            if restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                restaurant.name = restaurantName
+            }
+            accountStatus = "Check your email for the Supabase code, then enter it here to finish live sign-in."
+        } catch {
+            accountStatus = error.localizedDescription
+        }
+    }
+
+    func completeProductionSignIn(email: String, token: String, restaurantName: String) async {
+        do {
+            let gateway = ProductionSiteClawGateway()
+            account = try await gateway.verifyEmailOTP(email: email, token: token, restaurantName: restaurantName)
+            if restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                restaurant.name = restaurantName
+            }
+            accountStatus = "Supabase session verified for \(account.email)."
+        } catch {
+            accountStatus = error.localizedDescription
+        }
+    }
+
+    func signOut() {
+        account = SiteClawMock.signedOutAccount
+        accountStatus = "Signed out locally. Production Supabase session clearing comes next."
+    }
+
+    func chooseBillingPlan(_ plan: SiteClawSubscriptionPlan) async {
+        do {
+            let gateway = MockSiteClawGateway()
+            let result = try await gateway.checkout(
+                plan: plan,
+                currentSubscription: subscription,
+                email: account.email
+            )
+            subscription = result.subscription
+            pendingBillingURL = result.checkoutURL
+            monthlyPrice = subscription.plan.monthlyPrice
+            billingStatus = plan == .founding
+                ? "Founding partner access is active with unlimited edits."
+                : "\(plan.title) checkout mocked. Stripe will replace this local state."
+        } catch {
+            billingStatus = error.localizedDescription
+        }
+    }
+
+    func startProductionCheckout(_ plan: SiteClawSubscriptionPlan) async -> URL? {
+        do {
+            let gateway = ProductionSiteClawGateway()
+            let result = try await gateway.checkout(
+                plan: plan,
+                currentSubscription: subscription,
+                email: account.isAuthenticated ? account.email : nil
+            )
+            subscription = result.subscription
+            pendingBillingURL = result.checkoutURL
+            monthlyPrice = plan.monthlyPrice
+            billingStatus = result.checkoutURL == nil
+                ? "\(plan.title) checkout route responded without a URL."
+                : "Opening Stripe Checkout for \(plan.title)."
+            return result.checkoutURL
+        } catch {
+            pendingBillingURL = nil
+            billingStatus = error.localizedDescription
+            return nil
+        }
+    }
+
+    func openMockCustomerPortal() async {
+        do {
+            let gateway = MockSiteClawGateway()
+            let portalURL = try await gateway.openCustomerPortal(for: account)
+            billingStatus = "Customer portal route ready: \(portalURL)"
+        } catch {
+            billingStatus = error.localizedDescription
+        }
+    }
+
+    func startProductionCustomerPortal() async -> URL? {
+        do {
+            let gateway = ProductionSiteClawGateway()
+            let portalURL = try await gateway.openCustomerPortal(for: account)
+            billingStatus = "Opening Stripe Customer Portal."
+            return URL(string: portalURL)
+        } catch {
+            billingStatus = error.localizedDescription
+            return nil
+        }
     }
 
     func applyGeneratedDraft(_ response: SiteGenerationResponse) {

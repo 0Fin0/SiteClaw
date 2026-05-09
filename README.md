@@ -6,16 +6,20 @@ The product concept comes from the ISYS 556 SiteClaw project: restaurant owners 
 
 ## Current Prototype
 
-This first version is a SwiftUI app with Mac and iOS targets. It has six main tabs:
+This first version is a SwiftUI app with Mac and iOS targets. It has eight main tabs:
 
 - Talk: voice-onboarding prototype for capturing the owner conversation
 - Build: restaurant intake and AI-style onboarding conversation
 - Dashboard: launch readiness, MVP checklist, recent activity, and publish status
+- Account: mock auth/sign-in shell, owner identity, gateway status, and secret boundary notes
+- Billing: mock founding/starter/pro plans, edit usage, and future Stripe portal actions
 - Preview: generated restaurant website mockup plus static `index.html` export
 - JSON: generated `restaurant.json` data contract preview
 - Updates: voice-style quick updates for hours, menus, and announcements
 
 The AI, voice, and deployment behavior still has demo fallbacks so the project runs immediately in Xcode. The Talk tab can request a short-lived OpenAI Realtime session token from the local backend, stream native microphone audio to OpenAI Realtime over WebSocket, capture live transcript turns, and call the backend to generate structured website draft copy.
+
+The account and billing tabs are currently local gateway mocks. They define the app-facing shape for Supabase Auth, Supabase Storage, Stripe Checkout/Portal, and Pipeline calls while keeping privileged provider secrets behind backend routes.
 
 ## Tech Direction
 
@@ -101,8 +105,14 @@ curl -X POST http://localhost:8787/api/generate/draft \
 
 The app's Generate Website Draft button calls this endpoint first, then falls back to the local demo generator if the backend is unavailable.
 
+## Backend Secrecy Boundary
+
+See `Backend/SECURITY.md` for the current boundary. In short: the native app can hold public configuration, user session state, and short-lived client tokens, but service role keys, Stripe secrets, OpenAI API keys, Cloudflare tokens, and privileged writes stay on the backend.
+
 ## Next Steps
 
+- Replace mock auth with Supabase Auth and owner-scoped restaurant bootstrap
+- Replace mock billing actions with Stripe Checkout and Customer Portal backend routes
 - Add real restaurant intake fields for menu editing
 - Add Realtime assistant audio playback for spoken SiteClaw responses
 - Replace the single-file static export with the full Astro renderer
