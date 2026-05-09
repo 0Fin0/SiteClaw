@@ -25,6 +25,16 @@ struct SiteClawRootView: View {
                     Label("Dashboard", systemImage: "square.grid.2x2.fill")
                 }
 
+            AccountView(studio: studio)
+                .tabItem {
+                    Label("Account", systemImage: "person.crop.circle.fill")
+                }
+
+            BillingView(studio: studio)
+                .tabItem {
+                    Label("Billing", systemImage: "creditcard.fill")
+                }
+
             SitePreviewView(studio: studio)
                 .tabItem {
                     Label("Preview", systemImage: "iphone")

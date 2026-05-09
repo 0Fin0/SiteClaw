@@ -15,6 +15,10 @@ struct RestaurantJSON: Codable, Hashable, Sendable {
     var menu: RestaurantJSONMenu
     var seo: RestaurantJSONSEO
     var branding: RestaurantJSONBranding
+    var gallery: [RestaurantJSONGalleryImage] = []
+    var social: RestaurantJSONSocial?
+    var features: RestaurantJSONFeatures?
+    var specials: [RestaurantJSONSpecial] = []
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -26,6 +30,10 @@ struct RestaurantJSON: Codable, Hashable, Sendable {
         case menu
         case seo
         case branding
+        case gallery
+        case social
+        case features
+        case specials
     }
 }
 
@@ -35,6 +43,7 @@ struct RestaurantJSONBasics: Codable, Hashable, Sendable {
     var description: String
     var cuisineType: [String]
     var priceRange: String
+    var yearEstablished: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -42,12 +51,15 @@ struct RestaurantJSONBasics: Codable, Hashable, Sendable {
         case description
         case cuisineType = "cuisine_type"
         case priceRange = "price_range"
+        case yearEstablished = "year_established"
     }
 }
 
 struct RestaurantJSONContact: Codable, Hashable, Sendable {
     var phone: String
+    var email: String? = nil
     var address: RestaurantJSONAddress
+    var coordinates: RestaurantJSONCoordinates? = nil
 }
 
 struct RestaurantJSONAddress: Codable, Hashable, Sendable {
@@ -56,6 +68,11 @@ struct RestaurantJSONAddress: Codable, Hashable, Sendable {
     var state: String
     var zip: String
     var country: String
+}
+
+struct RestaurantJSONCoordinates: Codable, Hashable, Sendable {
+    var lat: Double
+    var lng: Double
 }
 
 struct RestaurantJSONHours: Codable, Hashable, Sendable {
@@ -71,6 +88,7 @@ struct RestaurantJSONHours: Codable, Hashable, Sendable {
 struct RestaurantJSONTimeRange: Codable, Hashable, Sendable {
     var open: String
     var close: String
+    var label: String? = nil
 }
 
 struct RestaurantJSONMenu: Codable, Hashable, Sendable {
@@ -96,26 +114,135 @@ struct RestaurantJSONMenuItem: Codable, Hashable, Sendable {
     var name: String
     var description: String
     var price: Double?
+    var priceNote: String? = nil
+    var imageURL: String? = nil
     var dietary: [String]
     var featured: Bool
     var available: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case description
+        case price
+        case priceNote = "price_note"
+        case imageURL = "image_url"
+        case dietary
+        case featured
+        case available
+    }
 }
 
 struct RestaurantJSONSEO: Codable, Hashable, Sendable {
     var title: String
     var description: String
     var keywords: [String]
+    var ogImageURL: String? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case description
+        case keywords
+        case ogImageURL = "og_image_url"
+    }
 }
 
 struct RestaurantJSONBranding: Codable, Hashable, Sendable {
+    var logoURL: String? = nil
     var primaryColor: String
+    var secondaryColor: String? = nil
     var accentColor: String
     var fontStyle: String
+    var heroImageURL: String? = nil
 
     enum CodingKeys: String, CodingKey {
+        case logoURL = "logo_url"
         case primaryColor = "primary_color"
+        case secondaryColor = "secondary_color"
         case accentColor = "accent_color"
         case fontStyle = "font_style"
+        case heroImageURL = "hero_image_url"
+    }
+}
+
+struct RestaurantJSONGalleryImage: Codable, Hashable, Identifiable, Sendable {
+    var id: String { url }
+    var url: String
+    var alt: String?
+    var caption: String?
+    var sortOrder: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case alt
+        case caption
+        case sortOrder = "sort_order"
+    }
+}
+
+struct RestaurantJSONSocial: Codable, Hashable, Sendable {
+    var facebook: String?
+    var instagram: String?
+    var twitter: String?
+    var tiktok: String?
+    var yelp: String?
+    var googleMaps: String?
+    var doordash: String?
+    var ubereats: String?
+    var grubhub: String?
+
+    enum CodingKeys: String, CodingKey {
+        case facebook
+        case instagram
+        case twitter
+        case tiktok
+        case yelp
+        case googleMaps = "google_maps"
+        case doordash
+        case ubereats
+        case grubhub
+    }
+}
+
+struct RestaurantJSONFeatures: Codable, Hashable, Sendable {
+    var onlineOrderingURL: String?
+    var reservationURL: String?
+    var showMap: Bool?
+    var showReviews: Bool?
+    var testimonials: [RestaurantJSONTestimonial]?
+
+    enum CodingKeys: String, CodingKey {
+        case onlineOrderingURL = "online_ordering_url"
+        case reservationURL = "reservation_url"
+        case showMap = "show_map"
+        case showReviews = "show_reviews"
+        case testimonials
+    }
+}
+
+struct RestaurantJSONTestimonial: Codable, Hashable, Identifiable, Sendable {
+    var id: String { "\(author)-\(quote)" }
+    var quote: String
+    var author: String
+    var source: String?
+    var rating: Int?
+}
+
+struct RestaurantJSONSpecial: Codable, Hashable, Identifiable, Sendable {
+    var id: String { title }
+    var title: String
+    var description: String?
+    var startDate: String?
+    var endDate: String?
+    var recurring: String?
+    var imageURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case description
+        case startDate = "start_date"
+        case endDate = "end_date"
+        case recurring
+        case imageURL = "image_url"
     }
 }
 
