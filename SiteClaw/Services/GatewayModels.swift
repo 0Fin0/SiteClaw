@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct SiteClawAccount: Hashable, Sendable {
+struct SiteClawAccount: Codable, Hashable, Sendable {
     var ownerName: String
     var email: String
     var restaurantID: String
@@ -14,9 +14,20 @@ struct SiteClawAccount: Hashable, Sendable {
     var role: String
     var lastSignedInAt: Date?
     var isAuthenticated: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case ownerName = "owner_name"
+        case email
+        case restaurantID = "restaurant_id"
+        case restaurantSlug = "restaurant_slug"
+        case authProvider = "auth_provider"
+        case role
+        case lastSignedInAt = "last_signed_in_at"
+        case isAuthenticated = "is_authenticated"
+    }
 }
 
-enum SiteClawSubscriptionPlan: String, CaseIterable, Hashable, Sendable {
+enum SiteClawSubscriptionPlan: String, CaseIterable, Codable, Hashable, Sendable {
     case founding
     case starter
     case pro
@@ -53,7 +64,7 @@ enum SiteClawSubscriptionPlan: String, CaseIterable, Hashable, Sendable {
     }
 }
 
-enum SiteClawSubscriptionStatus: String, Hashable, Sendable {
+enum SiteClawSubscriptionStatus: String, Codable, Hashable, Sendable {
     case active
     case trialing
     case pastDue
@@ -69,13 +80,22 @@ enum SiteClawSubscriptionStatus: String, Hashable, Sendable {
     }
 }
 
-struct SiteClawSubscription: Hashable, Sendable {
+struct SiteClawSubscription: Codable, Hashable, Sendable {
     var plan: SiteClawSubscriptionPlan
     var status: SiteClawSubscriptionStatus
     var editsThisPeriod: Int
     var currentPeriodEnd: Date?
     var stripeCustomerID: String?
     var stripeSubscriptionID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case plan
+        case status
+        case editsThisPeriod = "edits_this_period"
+        case currentPeriodEnd = "current_period_end"
+        case stripeCustomerID = "stripe_customer_id"
+        case stripeSubscriptionID = "stripe_subscription_id"
+    }
 
     var editLimit: Int {
         plan.editLimit

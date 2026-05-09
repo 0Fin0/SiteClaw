@@ -28,6 +28,8 @@ const server = http.createServer(async (req, res) => {
                 realtime_model: realtimeModel(),
                 realtime_transcription_model: realtimeTranscriptionModel(),
                 generation_model: generationModel(),
+                supabase_auth_configured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
+                stripe_configured: Boolean(process.env.STRIPE_SECRET_KEY),
             });
             return;
         }
@@ -42,6 +44,27 @@ const server = http.createServer(async (req, res) => {
         if (req.method === "POST" && isDraftGenerationPath(url.pathname)) {
             const body = await readJSON(req);
             const payload = await generateWebsiteDraft(body);
+            sendJSON(res, 200, payload);
+            return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/auth/sign-in") {
+            const body = await readJSON(req);
+            const payload = await startSupabaseEmailSignIn(body);
+            sendJSON(res, 200, payload);
+            return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/billing/checkout") {
+            const body = await readJSON(req);
+            const payload = await createStripeCheckoutSession(body);
+            sendJSON(res, 200, payload);
+            return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/billing/portal") {
+            const body = await readJSON(req);
+            const payload = await createStripePortalSession(body);
             sendJSON(res, 200, payload);
             return;
         }
@@ -228,6 +251,144 @@ async function generateWebsiteDraft(body) {
     };
 }
 
+async function startSupabaseEmailSignIn(body) {
+    const supabaseURL = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    if (!supabaseURL || !supabaseAnonKey) {
+        throw publicError(
+            501,
+            "Missing SUPABASE_URL or SUPABASE_ANON_KEY. Add Supabase public auth config to Backend/.env."
+        );
+    }
+
+    const email = sanitizeEmail(body.email);
+    const restaurantName = sanitizeText(body.restaurant_name ?? body.restaurantName);
+    if (!email) {
+        throw publicError(400, "Email is required.");
+    }
+    if (!restaurantName) {
+        throw publicError(400, "Restaurant name is required.");
+    }
+
+    const response = await fetch(`${supabaseURL.replace(/\/$/, "")}/auth/v1/otp`, {
+        method: "POST",
+        headers: {
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${supabaseAnonKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            email,
+            create_user: true,
+            data: {
+                restaurant_name: restaurantName,
+                restaurant_slug: slugFor(restaurantName),
+            },
+        }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw publicError(response.status, data?.msg || data?.error_description || "Supabase sign-in failed.");
+    }
+
+    return {
+        account: {
+            owner_name: titleFromEmail(email),
+            email,
+            restaurant_id: "pending-supabase-restaurant",
+            restaurant_slug: slugFor(restaurantName),
+            auth_provider: "Supabase Email OTP",
+            role: "Owner",
+            last_signed_in_at: new Date().toISOString(),
+            is_authenticated: false,
+        },
+        delivery: "email_otp",
+        message: "Supabase accepted the sign-in request. Check email to complete authentication.",
+    };
+}
+
+async function createStripeCheckoutSession(body) {
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeKey) {
+        throw publicError(501, "Missing STRIPE_SECRET_KEY. Add Stripe backend config to Backend/.env.");
+    }
+
+    const plan = sanitizePlan(body.plan);
+    if (plan === "founding") {
+        throw publicError(400, "Founding plans are assigned manually and do not use Stripe Checkout.");
+    }
+
+    const price = stripePriceForPlan(plan);
+    if (!price) {
+        throw publicError(501, `Missing Stripe price env var for ${plan}.`);
+    }
+
+    const successURL = sanitizeURL(body.success_url ?? body.successURL) || defaultAppURL("/billing/success");
+    const cancelURL = sanitizeURL(body.cancel_url ?? body.cancelURL) || defaultAppURL("/billing");
+    const email = sanitizeEmail(body.email);
+
+    const params = {
+        mode: "subscription",
+        success_url: successURL,
+        cancel_url: cancelURL,
+        "line_items[0][price]": price,
+        "line_items[0][quantity]": "1",
+        "metadata[plan]": plan,
+    };
+
+    if (email) {
+        params.customer_email = email;
+    }
+
+    const data = await postStripeForm("/v1/checkout/sessions", params, stripeKey);
+
+    return {
+        url: data.url,
+        id: data.id,
+        subscription: {
+            plan,
+            status: "trialing",
+            edits_this_period: 0,
+            current_period_end: null,
+            stripe_customer_id: typeof data.customer === "string" ? data.customer : null,
+            stripe_subscription_id: typeof data.subscription === "string" ? data.subscription : null,
+        },
+    };
+}
+
+async function createStripePortalSession(body) {
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeKey) {
+        throw publicError(501, "Missing STRIPE_SECRET_KEY. Add Stripe backend config to Backend/.env.");
+    }
+
+    let customerID = sanitizeText(body.customer_id ?? body.customerID);
+    const email = sanitizeEmail(body.email);
+    if (!customerID && email) {
+        customerID = await findStripeCustomerIDByEmail(email, stripeKey);
+    }
+
+    if (!customerID) {
+        throw publicError(400, "Stripe customer_id or a matching customer email is required for the customer portal.");
+    }
+
+    const returnURL = sanitizeURL(body.return_url ?? body.returnURL) || defaultAppURL("/billing");
+    const data = await postStripeForm(
+        "/v1/billing_portal/sessions",
+        {
+            customer: customerID,
+            return_url: returnURL,
+        },
+        stripeKey
+    );
+
+    return {
+        url: data.url,
+        id: data.id,
+    };
+}
+
 function siteClawInstructions(restaurantName) {
     return [
         "You are SiteClaw, a friendly voice onboarding assistant for local restaurant owners.",
@@ -386,6 +547,65 @@ function generationModel() {
     return process.env.OPENAI_GENERATION_MODEL || "gpt-5.4-mini";
 }
 
+function stripePriceForPlan(plan) {
+    switch (plan) {
+        case "starter":
+            return process.env.STRIPE_PRICE_STARTER;
+        case "pro":
+            return process.env.STRIPE_PRICE_PRO;
+        default:
+            return "";
+    }
+}
+
+async function postStripeForm(path, params, stripeKey) {
+    const response = await fetch(`https://api.stripe.com${path}`, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${stripeKey}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams(params).toString(),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw publicError(response.status, data?.error?.message || "Stripe request failed.");
+    }
+
+    return data;
+}
+
+async function getStripeJSON(path, params, stripeKey) {
+    const query = new URLSearchParams(params).toString();
+    const response = await fetch(`https://api.stripe.com${path}?${query}`, {
+        method: "GET",
+        headers: {
+            Authorization: `Bearer ${stripeKey}`,
+        },
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw publicError(response.status, data?.error?.message || "Stripe request failed.");
+    }
+
+    return data;
+}
+
+async function findStripeCustomerIDByEmail(email, stripeKey) {
+    const data = await getStripeJSON(
+        "/v1/customers",
+        {
+            email,
+            limit: "1",
+        },
+        stripeKey
+    );
+
+    return typeof data?.data?.[0]?.id === "string" ? data.data[0].id : "";
+}
+
 function extractOutputText(data) {
     if (typeof data?.output_text === "string") {
         return data.output_text;
@@ -407,6 +627,52 @@ function extractOutputText(data) {
 function numberFromEnv(name, fallback) {
     const parsed = Number.parseInt(process.env[name] ?? "", 10);
     return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function sanitizeEmail(value) {
+    const email = sanitizeTextWithLimit(value, 254).toLowerCase();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+function sanitizePlan(value) {
+    const plan = sanitizeText(value).toLowerCase();
+    return ["founding", "starter", "pro"].includes(plan) ? plan : "starter";
+}
+
+function sanitizeURL(value) {
+    const text = sanitizeTextWithLimit(value, 2048);
+    if (!text) {
+        return "";
+    }
+
+    try {
+        const url = new URL(text);
+        return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+    } catch {
+        return "";
+    }
+}
+
+function defaultAppURL(path) {
+    const appURL = process.env.SITECLAW_APP_URL || "http://localhost:3000";
+    return `${appURL.replace(/\/$/, "")}${path}`;
+}
+
+function slugFor(value) {
+    return sanitizeText(value)
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter(Boolean)
+        .join("-");
+}
+
+function titleFromEmail(email) {
+    return email
+        .split("@")[0]
+        .split(/[._-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ") || "Restaurant Owner";
 }
 
 function publicError(statusCode, publicMessage) {
