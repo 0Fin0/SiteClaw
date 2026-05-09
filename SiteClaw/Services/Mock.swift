@@ -29,12 +29,12 @@ enum SiteClawMock {
     )
 
     static let subscription = SiteClawSubscription(
-        plan: .founding,
+        plan: .starter,
         status: .active,
         editsThisPeriod: 2,
         currentPeriodEnd: Calendar.current.date(byAdding: .day, value: 21, to: Date()),
-        stripeCustomerID: nil,
-        stripeSubscriptionID: nil
+        stripeCustomerID: "cus_mock_siteclaw",
+        stripeSubscriptionID: "sub_mock_siteclaw"
     )
 
     static let gatewayEndpoints: [SiteClawGatewayEndpoint] = [

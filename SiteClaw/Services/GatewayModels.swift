@@ -32,7 +32,7 @@ enum SiteClawSubscriptionPlan: String, CaseIterable, Hashable, Sendable {
     var monthlyPrice: Int {
         switch self {
         case .founding: 0
-        case .starter: 29
+        case .starter: 19
         case .pro: 79
         }
     }
@@ -47,7 +47,7 @@ enum SiteClawSubscriptionPlan: String, CaseIterable, Hashable, Sendable {
     var summary: String {
         switch self {
         case .founding: "Free forever access for early SiteClaw partners."
-        case .starter: "Core website publishing with 5 edits per billing period."
+        case .starter: "Small operator pricing with 5 edits per billing period."
         case .pro: "Unlimited edits plus custom domain readiness."
         }
     }

@@ -1734,11 +1734,11 @@ extension SiteClawStudio {
             DashboardMetric(label: "Completion", value: "92%", trend: "Ready for owner review", systemImage: "checkmark.seal.fill"),
             DashboardMetric(label: "Pages", value: "5", trend: "Home, Menu, Hours, Location, About", systemImage: "doc.text.fill"),
             DashboardMetric(label: "SEO Terms", value: "4", trend: "Local search phrases generated", systemImage: "magnifyingglass"),
-            DashboardMetric(label: "Monthly Plan", value: "Founding", trend: "Unlimited early partner access", systemImage: "creditcard.fill")
+            DashboardMetric(label: "Monthly Plan", value: "$19", trend: "Small operator pricing", systemImage: "creditcard.fill")
         ],
         isPublished: false,
         isDraftGenerated: true,
-        monthlyPrice: 0
+        monthlyPrice: 19
     )
 }
 
