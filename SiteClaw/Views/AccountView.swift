@@ -9,6 +9,7 @@ struct AccountView: View {
     @Bindable var studio: SiteClawStudio
     @State private var email = "carlo@siteclaw.app"
     @State private var restaurantName = "Pho Lotus Kitchen"
+    @State private var otpCode = ""
     @State private var authMode: AuthMode = .demo
 
     var body: some View {
@@ -24,6 +25,7 @@ struct AccountView: View {
                             studio: studio,
                             email: $email,
                             restaurantName: $restaurantName,
+                            otpCode: $otpCode,
                             authMode: authMode
                         )
                     }
@@ -36,30 +38,17 @@ struct AccountView: View {
             .background(SiteClawTheme.background.ignoresSafeArea())
             .navigationTitle("Account")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        if studio.account.isAuthenticated {
+                if studio.account.isAuthenticated {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
                             studio.signOut()
-                        } else {
-                            Task {
-                                await signIn()
-                            }
+                        } label: {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
                         }
-                    } label: {
-                        Image(systemName: studio.account.isAuthenticated ? "rectangle.portrait.and.arrow.right" : "person.badge.key.fill")
+                        .accessibilityLabel("Sign out")
                     }
-                    .accessibilityLabel(studio.account.isAuthenticated ? "Sign out" : "Sign in")
                 }
             }
-        }
-    }
-
-    private func signIn() async {
-        switch authMode {
-        case .demo:
-            await studio.signInWithMockGateway(email: email, restaurantName: restaurantName)
-        case .live:
-            await studio.startProductionSignIn(email: email, restaurantName: restaurantName)
         }
     }
 }
@@ -72,8 +61,15 @@ private enum AuthMode: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .demo: "Instant local sign-in for the class demo."
-        case .live: "Calls the backend Supabase OTP route when env vars are configured."
+        case .demo: "Instant local sign-in for class demo reliability."
+        case .live: "Starts and verifies a Supabase email OTP through the backend."
+        }
+    }
+
+    var statusTitle: String {
+        switch self {
+        case .demo: "No Network Required"
+        case .live: "Backend Required"
         }
     }
 }
@@ -83,24 +79,32 @@ private struct AuthModeCard: View {
 
     var body: some View {
         ClawCard {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "person.badge.key.fill")
+                    Image(systemName: mode == .demo ? "checkmark.shield.fill" : "network")
                         .font(.title3)
-                        .foregroundStyle(SiteClawTheme.sky)
-                        .frame(width: 30, height: 30)
+                        .foregroundStyle(mode == .demo ? SiteClawTheme.mint : SiteClawTheme.sky)
+                        .frame(width: 32, height: 32)
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Auth Mode")
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Sign-In Mode")
                             .font(.headline)
                         Text(mode.detail)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    Spacer()
+
+                    LabelPill(
+                        title: mode.statusTitle,
+                        systemImage: mode == .demo ? "bolt.fill" : "server.rack",
+                        color: mode == .demo ? SiteClawTheme.mint : SiteClawTheme.sky
+                    )
                 }
 
-                Picker("Auth mode", selection: $mode) {
+                Picker("Sign-in mode", selection: $mode) {
                     ForEach(AuthMode.allCases) { mode in
                         Text(mode.rawValue).tag(mode)
                     }
@@ -115,51 +119,147 @@ private struct SignInShellCard: View {
     @Bindable var studio: SiteClawStudio
     @Binding var email: String
     @Binding var restaurantName: String
+    @Binding var otpCode: String
     let authMode: AuthMode
+    @State private var isSigningIn = false
+    @State private var isVerifyingOTP = false
+    @State private var isAwaitingOTP = false
+
+    private var trimmedEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedRestaurantName: String {
+        restaurantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     var body: some View {
         ClawCard {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Label(authMode == .demo ? "Demo Sign In" : "Supabase Sign In", systemImage: "person.badge.key.fill")
-                        .font(.headline)
-                        .foregroundStyle(SiteClawTheme.coral)
-                    Spacer()
-                    LabelPill(title: authMode.rawValue, systemImage: "switch.2", color: SiteClawTheme.sky)
-                }
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: authMode == .demo ? "person.crop.circle.badge.checkmark" : "envelope.badge.shield.half.filled")
+                        .font(.title2)
+                        .foregroundStyle(authMode == .demo ? SiteClawTheme.coral : SiteClawTheme.sky)
+                        .frame(width: 36, height: 36)
 
-                Text(authMode == .demo
-                    ? "Use mock auth to exercise account, billing, and ownership flow without network risk."
-                    : "Starts Supabase email OTP through the backend. Email completion is the next live-session step.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                TextField("Email", text: $email)
-                    .textFieldStyle(.roundedBorder)
-
-                TextField("Restaurant name", text: $restaurantName)
-                    .textFieldStyle(.roundedBorder)
-
-                Button {
-                    Task {
-                        switch authMode {
-                        case .demo:
-                            await studio.signInWithMockGateway(email: email, restaurantName: restaurantName)
-                        case .live:
-                            await studio.startProductionSignIn(email: email, restaurantName: restaurantName)
-                        }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(authMode == .demo ? "Demo Sign In" : "Supabase Email Sign In")
+                            .font(.title3.bold())
+                        Text(authMode == .demo
+                            ? "Use a local account for the live class walkthrough."
+                            : "Send a one-time code, then verify it without putting Supabase secrets in the app.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                } label: {
-                    Label(authMode == .demo ? "Sign In" : "Send Email Link", systemImage: authMode == .demo ? "arrow.right.circle.fill" : "envelope.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(SiteClawTheme.coral)
 
-                Text(studio.accountStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                VStack(spacing: 10) {
+                    TextField("Email", text: $email)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(isSigningIn || isVerifyingOTP)
+
+                    TextField("Restaurant name", text: $restaurantName)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(isSigningIn || isVerifyingOTP)
+
+                    if authMode == .live && isAwaitingOTP {
+                        TextField("Email code", text: $otpCode)
+                            .textFieldStyle(.roundedBorder)
+                            .disabled(isVerifyingOTP)
+                    }
+                }
+
+                VStack(spacing: 10) {
+                    Button {
+                        Task {
+                            await beginSignIn()
+                        }
+                    } label: {
+                        ProgressLabel(
+                            title: signInTitle,
+                            systemImage: authMode == .demo ? "arrow.right.circle.fill" : "envelope.fill",
+                            isLoading: isSigningIn,
+                            progressTint: .white
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(SiteClawTheme.coral)
+                    .disabled(!canBeginSignIn || isSigningIn || isVerifyingOTP)
+
+                    if authMode == .live && isAwaitingOTP {
+                        Button {
+                            Task {
+                                await verifyOTP()
+                            }
+                        } label: {
+                            ProgressLabel(
+                                title: "Verify Code",
+                                systemImage: "checkmark.seal.fill",
+                                isLoading: isVerifyingOTP,
+                                progressTint: SiteClawTheme.sky
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(SiteClawTheme.sky)
+                        .disabled(otpCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSigningIn || isVerifyingOTP)
+                    }
+                }
+
+                StatusMessage(
+                    text: studio.accountStatus,
+                    kind: studio.account.isAuthenticated ? .success : (authMode == .live && isAwaitingOTP ? .pending : .neutral)
+                )
             }
+        }
+        .onChange(of: authMode) {
+            otpCode = ""
+            isAwaitingOTP = false
+        }
+    }
+
+    private var signInTitle: String {
+        if isSigningIn {
+            return authMode == .demo ? "Signing In" : "Sending Code"
+        }
+
+        return authMode == .demo ? "Sign In" : (isAwaitingOTP ? "Send New Code" : "Send Email Code")
+    }
+
+    private var canBeginSignIn: Bool {
+        !trimmedEmail.isEmpty && !trimmedRestaurantName.isEmpty
+    }
+
+    private func beginSignIn() async {
+        isSigningIn = true
+        defer { isSigningIn = false }
+
+        switch authMode {
+        case .demo:
+            await studio.signInWithMockGateway(email: email, restaurantName: restaurantName)
+        case .live:
+            await studio.startProductionSignIn(email: email, restaurantName: restaurantName)
+            if !studio.account.isAuthenticated {
+                isAwaitingOTP = true
+            }
+        }
+    }
+
+    private func verifyOTP() async {
+        isVerifyingOTP = true
+        defer { isVerifyingOTP = false }
+
+        await studio.completeProductionSignIn(
+            email: email,
+            token: otpCode,
+            restaurantName: restaurantName
+        )
+
+        if studio.account.isAuthenticated {
+            otpCode = ""
+            isAwaitingOTP = false
         }
     }
 }
@@ -169,10 +269,10 @@ private struct AccountSummaryCard: View {
 
     var body: some View {
         ClawCard {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 42))
+                    Image(systemName: "person.crop.circle.fill.badge.checkmark")
+                        .font(.system(size: 44))
                         .foregroundStyle(SiteClawTheme.navy)
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -181,6 +281,8 @@ private struct AccountSummaryCard: View {
                         Text(studio.account.email)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
 
                     Spacer()
@@ -190,27 +292,93 @@ private struct AccountSummaryCard: View {
 
                 Divider()
 
-                AccountField(title: "Restaurant ID", value: studio.account.restaurantID)
-                AccountField(title: "Slug", value: studio.account.restaurantSlug)
-                AccountField(title: "Provider", value: studio.account.authProvider)
-                AccountField(
-                    title: "Last sign in",
-                    value: studio.account.lastSignedInAt?.formatted(date: .abbreviated, time: .shortened) ?? "Not recorded"
-                )
+                VStack(spacing: 10) {
+                    AccountField(title: "Restaurant ID", value: studio.account.restaurantID)
+                    AccountField(title: "Slug", value: studio.account.restaurantSlug)
+                    AccountField(title: "Provider", value: studio.account.authProvider)
+                    AccountField(
+                        title: "Last sign in",
+                        value: studio.account.lastSignedInAt?.formatted(date: .abbreviated, time: .shortened) ?? "Not recorded"
+                    )
+                }
 
                 Button {
                     studio.signOut()
                 } label: {
                     Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, minHeight: 36)
                 }
                 .buttonStyle(.bordered)
 
-                Text(studio.accountStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                StatusMessage(text: studio.accountStatus, kind: .success)
             }
         }
+    }
+}
+
+private struct ProgressLabel: View {
+    let title: String
+    let systemImage: String
+    let isLoading: Bool
+    let progressTint: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(progressTint)
+            } else {
+                Image(systemName: systemImage)
+            }
+
+            Text(title)
+                .fontWeight(.semibold)
+        }
+        .frame(maxWidth: .infinity, minHeight: 36)
+    }
+}
+
+private enum StatusKind {
+    case neutral
+    case pending
+    case success
+
+    var color: Color {
+        switch self {
+        case .neutral: SiteClawTheme.sky
+        case .pending: SiteClawTheme.gold
+        case .success: SiteClawTheme.mint
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .neutral: "info.circle.fill"
+        case .pending: "clock.badge.checkmark.fill"
+        case .success: "checkmark.circle.fill"
+        }
+    }
+}
+
+private struct StatusMessage: View {
+    let text: String
+    let kind: StatusKind
+
+    var body: some View {
+        Label {
+            Text(text)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: kind.icon)
+                .foregroundStyle(kind.color)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(kind.color.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -223,10 +391,11 @@ private struct AccountField: View {
             Text(title)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Spacer()
+            Spacer(minLength: 16)
             Text(value.isEmpty ? "Not set" : value)
                 .font(.subheadline.weight(.medium))
                 .multilineTextAlignment(.trailing)
+                .lineLimit(2)
         }
     }
 }
@@ -238,7 +407,7 @@ private struct GatewayStatusList: View {
         VStack(spacing: 12) {
             SectionHeader(
                 title: "Gateway Layer",
-                subtitle: "Mock service seams for auth, storage, billing, and pipeline calls."
+                subtitle: "Mock and production edges for auth, storage, billing, and pipeline calls."
             )
 
             ForEach(endpoints) { endpoint in
@@ -286,7 +455,7 @@ private struct SecretBoundaryList: View {
         VStack(spacing: 12) {
             SectionHeader(
                 title: "Secret Boundary",
-                subtitle: "Backend-only responsibilities that should stay out of the native app."
+                subtitle: "Backend-only responsibilities that stay out of the native app."
             )
 
             ForEach(items) { item in
@@ -296,7 +465,7 @@ private struct SecretBoundaryList: View {
                             Text(item.title)
                                 .font(.headline)
                             Spacer()
-                            LabelPill(title: item.owner, systemImage: "person.fill", color: SiteClawTheme.mint)
+                            LabelPill(title: item.owner, systemImage: "lock.shield.fill", color: SiteClawTheme.mint)
                         }
 
                         Text(item.detail)

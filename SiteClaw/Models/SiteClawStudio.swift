@@ -342,7 +342,20 @@ final class SiteClawStudio {
             if restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 restaurant.name = restaurantName
             }
-            accountStatus = "Supabase email sign-in started. Complete the OTP email flow to finish the live session."
+            accountStatus = "Check your email for the Supabase code, then enter it here to finish live sign-in."
+        } catch {
+            accountStatus = error.localizedDescription
+        }
+    }
+
+    func completeProductionSignIn(email: String, token: String, restaurantName: String) async {
+        do {
+            let gateway = ProductionSiteClawGateway()
+            account = try await gateway.verifyEmailOTP(email: email, token: token, restaurantName: restaurantName)
+            if restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                restaurant.name = restaurantName
+            }
+            accountStatus = "Supabase session verified for \(account.email)."
         } catch {
             accountStatus = error.localizedDescription
         }
@@ -356,7 +369,11 @@ final class SiteClawStudio {
     func chooseBillingPlan(_ plan: SiteClawSubscriptionPlan) async {
         do {
             let gateway = MockSiteClawGateway()
-            let result = try await gateway.checkout(plan: plan, currentSubscription: subscription)
+            let result = try await gateway.checkout(
+                plan: plan,
+                currentSubscription: subscription,
+                email: account.email
+            )
             subscription = result.subscription
             pendingBillingURL = result.checkoutURL
             monthlyPrice = subscription.plan.monthlyPrice
@@ -371,7 +388,11 @@ final class SiteClawStudio {
     func startProductionCheckout(_ plan: SiteClawSubscriptionPlan) async -> URL? {
         do {
             let gateway = ProductionSiteClawGateway()
-            let result = try await gateway.checkout(plan: plan, currentSubscription: subscription)
+            let result = try await gateway.checkout(
+                plan: plan,
+                currentSubscription: subscription,
+                email: account.isAuthenticated ? account.email : nil
+            )
             subscription = result.subscription
             pendingBillingURL = result.checkoutURL
             monthlyPrice = plan.monthlyPrice

@@ -55,6 +55,13 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === "POST" && url.pathname === "/api/auth/verify-otp") {
+            const body = await readJSON(req);
+            const payload = await verifySupabaseEmailOTP(body);
+            sendJSON(res, 200, payload);
+            return;
+        }
+
         if (req.method === "POST" && url.pathname === "/api/billing/checkout") {
             const body = await readJSON(req);
             const payload = await createStripeCheckoutSession(body);
@@ -305,6 +312,72 @@ async function startSupabaseEmailSignIn(body) {
         },
         delivery: "email_otp",
         message: "Supabase accepted the sign-in request. Check email to complete authentication.",
+    };
+}
+
+async function verifySupabaseEmailOTP(body) {
+    const supabaseURL = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    if (!supabaseURL || !supabaseAnonKey) {
+        throw publicError(
+            501,
+            "Missing SUPABASE_URL or SUPABASE_ANON_KEY. Add Supabase public auth config to Backend/.env."
+        );
+    }
+
+    const email = sanitizeEmail(body.email);
+    const token = sanitizeText(body.token);
+    const restaurantName = sanitizeText(body.restaurant_name ?? body.restaurantName);
+    if (!email) {
+        throw publicError(400, "Email is required.");
+    }
+    if (!token) {
+        throw publicError(400, "Supabase email code is required.");
+    }
+    if (!restaurantName) {
+        throw publicError(400, "Restaurant name is required.");
+    }
+
+    const response = await fetch(`${supabaseURL.replace(/\/$/, "")}/auth/v1/verify`, {
+        method: "POST",
+        headers: {
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${supabaseAnonKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            type: "email",
+            email,
+            token,
+        }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw publicError(response.status, data?.msg || data?.error_description || "Supabase OTP verification failed.");
+    }
+
+    const user = data.user ?? {};
+    const metadata = user.user_metadata ?? {};
+    const resolvedRestaurantName = sanitizeText(metadata.restaurant_name) || restaurantName;
+    const restaurantSlug = sanitizeText(metadata.restaurant_slug) || slugFor(resolvedRestaurantName);
+
+    return {
+        account: {
+            owner_name: titleFromEmail(email),
+            email,
+            restaurant_id: typeof user.id === "string" ? user.id : "supabase-session",
+            restaurant_slug: restaurantSlug,
+            auth_provider: "Supabase Email OTP",
+            role: "Owner",
+            last_signed_in_at: new Date().toISOString(),
+            is_authenticated: true,
+        },
+        session: {
+            expires_at: data.expires_at ?? null,
+            token_type: data.token_type ?? "bearer",
+        },
+        message: "Supabase email OTP verified. Native session completion is active.",
     };
 }
 

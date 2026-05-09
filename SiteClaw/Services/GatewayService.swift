@@ -7,13 +7,19 @@ import Foundation
 
 protocol SiteClawGatewaying: Sendable {
     func signIn(email: String, restaurantName: String) async throws -> SiteClawAccount
-    func checkout(plan: SiteClawSubscriptionPlan, currentSubscription: SiteClawSubscription) async throws -> SiteClawCheckoutResult
+    func verifyEmailOTP(email: String, token: String, restaurantName: String) async throws -> SiteClawAccount
+    func checkout(
+        plan: SiteClawSubscriptionPlan,
+        currentSubscription: SiteClawSubscription,
+        email: String?
+    ) async throws -> SiteClawCheckoutResult
     func openCustomerPortal(for account: SiteClawAccount) async throws -> String
 }
 
 enum SiteClawGatewayError: LocalizedError {
     case missingEmail
     case missingRestaurantName
+    case missingOTP
     case signedOut
     case invalidBackendURL
     case invalidResponse
@@ -23,6 +29,7 @@ enum SiteClawGatewayError: LocalizedError {
         switch self {
         case .missingEmail: "Enter an email address before signing in."
         case .missingRestaurantName: "Enter a restaurant name before signing in."
+        case .missingOTP: "Enter the email code from Supabase."
         case .signedOut: "Sign in before managing billing."
         case .invalidBackendURL: "The SiteClaw backend URL is not valid."
         case .invalidResponse: "The SiteClaw backend returned an invalid response."
@@ -48,13 +55,33 @@ struct ProductionSiteClawGateway: SiteClawGatewaying {
         return response.account
     }
 
+    func verifyEmailOTP(email: String, token: String, restaurantName: String) async throws -> SiteClawAccount {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedRestaurant = restaurantName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedEmail.isEmpty else { throw SiteClawGatewayError.missingEmail }
+        guard !trimmedToken.isEmpty else { throw SiteClawGatewayError.missingOTP }
+        guard !trimmedRestaurant.isEmpty else { throw SiteClawGatewayError.missingRestaurantName }
+
+        let request = VerifyOTPRequest(
+            email: trimmedEmail,
+            token: trimmedToken,
+            restaurantName: trimmedRestaurant
+        )
+        let response: SignInResponse = try await post(request, path: "/api/auth/verify-otp")
+        return response.account
+    }
+
     func checkout(
         plan: SiteClawSubscriptionPlan,
-        currentSubscription: SiteClawSubscription
+        currentSubscription: SiteClawSubscription,
+        email: String?
     ) async throws -> SiteClawCheckoutResult {
         let request = CheckoutRequest(
             plan: plan,
             restaurantID: nil,
+            email: email,
             successURL: successURL.absoluteString,
             cancelURL: cancelURL.absoluteString
         )
@@ -138,9 +165,16 @@ struct MockSiteClawGateway: SiteClawGatewaying {
         )
     }
 
+    func verifyEmailOTP(email: String, token: String, restaurantName: String) async throws -> SiteClawAccount {
+        let trimmedOTP = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedOTP.isEmpty else { throw SiteClawGatewayError.missingOTP }
+        return try await signIn(email: email, restaurantName: restaurantName)
+    }
+
     func checkout(
         plan: SiteClawSubscriptionPlan,
-        currentSubscription: SiteClawSubscription
+        currentSubscription: SiteClawSubscription,
+        email: String?
     ) async throws -> SiteClawCheckoutResult {
         var subscription = currentSubscription
         subscription.plan = plan
@@ -185,6 +219,18 @@ private struct SignInRequest: Encodable {
     }
 }
 
+private struct VerifyOTPRequest: Encodable {
+    var email: String
+    var token: String
+    var restaurantName: String
+
+    enum CodingKeys: String, CodingKey {
+        case email
+        case token
+        case restaurantName = "restaurant_name"
+    }
+}
+
 private struct SignInResponse: Decodable {
     var account: SiteClawAccount
 }
@@ -192,12 +238,14 @@ private struct SignInResponse: Decodable {
 private struct CheckoutRequest: Encodable {
     var plan: SiteClawSubscriptionPlan
     var restaurantID: String?
+    var email: String?
     var successURL: String
     var cancelURL: String
 
     enum CodingKeys: String, CodingKey {
         case plan
         case restaurantID = "restaurant_id"
+        case email
         case successURL = "success_url"
         case cancelURL = "cancel_url"
     }
