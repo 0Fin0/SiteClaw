@@ -7,7 +7,7 @@ import Foundation
 
 protocol SiteClawGatewaying: Sendable {
     func signIn(email: String, restaurantName: String) async throws -> SiteClawAccount
-    func checkout(plan: SiteClawSubscriptionPlan, currentSubscription: SiteClawSubscription) async throws -> SiteClawSubscription
+    func checkout(plan: SiteClawSubscriptionPlan, currentSubscription: SiteClawSubscription) async throws -> SiteClawCheckoutResult
     func openCustomerPortal(for account: SiteClawAccount) async throws -> String
 }
 
@@ -51,7 +51,7 @@ struct ProductionSiteClawGateway: SiteClawGatewaying {
     func checkout(
         plan: SiteClawSubscriptionPlan,
         currentSubscription: SiteClawSubscription
-    ) async throws -> SiteClawSubscription {
+    ) async throws -> SiteClawCheckoutResult {
         let request = CheckoutRequest(
             plan: plan,
             restaurantID: nil,
@@ -59,7 +59,10 @@ struct ProductionSiteClawGateway: SiteClawGatewaying {
             cancelURL: cancelURL.absoluteString
         )
         let response: CheckoutResponse = try await post(request, path: "/api/billing/checkout")
-        return response.subscription ?? updatedSubscription(plan: plan, from: currentSubscription)
+        return SiteClawCheckoutResult(
+            subscription: response.subscription ?? updatedSubscription(plan: plan, from: currentSubscription),
+            checkoutURL: response.url.flatMap(URL.init(string:))
+        )
     }
 
     func openCustomerPortal(for account: SiteClawAccount) async throws -> String {
@@ -138,14 +141,14 @@ struct MockSiteClawGateway: SiteClawGatewaying {
     func checkout(
         plan: SiteClawSubscriptionPlan,
         currentSubscription: SiteClawSubscription
-    ) async throws -> SiteClawSubscription {
+    ) async throws -> SiteClawCheckoutResult {
         var subscription = currentSubscription
         subscription.plan = plan
         subscription.status = .active
         subscription.currentPeriodEnd = Calendar.current.date(byAdding: .month, value: 1, to: Date())
         subscription.stripeCustomerID = plan == .founding ? nil : "cus_mock_siteclaw"
         subscription.stripeSubscriptionID = plan == .founding ? nil : "sub_mock_siteclaw"
-        return subscription
+        return SiteClawCheckoutResult(subscription: subscription, checkoutURL: nil)
     }
 
     func openCustomerPortal(for account: SiteClawAccount) async throws -> String {

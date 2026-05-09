@@ -7,14 +7,25 @@ import SwiftUI
 
 struct BillingView: View {
     @Bindable var studio: SiteClawStudio
+    @Environment(\.openURL) private var openURL
+    @State private var billingMode: BillingMode = .demo
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    CurrentPlanCard(studio: studio)
+                    BillingModeCard(mode: $billingMode)
+                    CurrentPlanCard(studio: studio, billingMode: billingMode) {
+                        Task {
+                            await openCustomerPortal()
+                        }
+                    }
                     UsageCard(subscription: studio.subscription)
-                    PlanComparisonGrid(studio: studio)
+                    PlanComparisonGrid(studio: studio, billingMode: billingMode) { plan in
+                        Task {
+                            await choosePlan(plan)
+                        }
+                    }
                 }
                 .padding(16)
             }
@@ -24,7 +35,7 @@ struct BillingView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         Task {
-                            await studio.openMockCustomerPortal()
+                            await openCustomerPortal()
                         }
                     } label: {
                         Image(systemName: "arrow.up.forward.app.fill")
@@ -35,10 +46,90 @@ struct BillingView: View {
             }
         }
     }
+
+    private func choosePlan(_ plan: SiteClawSubscriptionPlan) async {
+        switch billingMode {
+        case .demo:
+            await studio.chooseBillingPlan(plan)
+        case .live:
+            guard plan != .founding else {
+                studio.billingStatus = "Founding partner plans are assigned manually, not through Stripe Checkout."
+                return
+            }
+
+            guard let url = await studio.startProductionCheckout(plan) else {
+                return
+            }
+
+            openURL(url)
+        }
+    }
+
+    private func openCustomerPortal() async {
+        switch billingMode {
+        case .demo:
+            await studio.openMockCustomerPortal()
+        case .live:
+            guard let url = await studio.startProductionCustomerPortal() else {
+                return
+            }
+
+            openURL(url)
+        }
+    }
+}
+
+private enum BillingMode: String, CaseIterable, Identifiable {
+    case demo = "Demo"
+    case live = "Live"
+
+    var id: Self { self }
+
+    var detail: String {
+        switch self {
+        case .demo: "Instant local plan switching for the class demo."
+        case .live: "Calls the backend and opens Stripe-hosted pages when env vars are configured."
+        }
+    }
+}
+
+private struct BillingModeCard: View {
+    @Binding var mode: BillingMode
+
+    var body: some View {
+        ClawCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "switch.2")
+                        .font(.title3)
+                        .foregroundStyle(SiteClawTheme.sky)
+                        .frame(width: 30, height: 30)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Billing Mode")
+                            .font(.headline)
+                        Text(mode.detail)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Picker("Billing mode", selection: $mode) {
+                    ForEach(BillingMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+    }
 }
 
 private struct CurrentPlanCard: View {
     @Bindable var studio: SiteClawStudio
+    let billingMode: BillingMode
+    let manageAction: () -> Void
 
     var body: some View {
         ClawCard {
@@ -74,13 +165,11 @@ private struct CurrentPlanCard: View {
                 }
 
                 Button {
-                    Task {
-                        await studio.openMockCustomerPortal()
-                    }
+                    manageAction()
                 } label: {
                     Label(
-                        studio.canUseCustomerPortal ? "Manage Subscription" : "Portal Pending",
-                        systemImage: "creditcard.and.123"
+                        manageTitle,
+                        systemImage: billingMode == .live ? "safari.fill" : "creditcard.and.123"
                     )
                     .frame(maxWidth: .infinity)
                 }
@@ -92,6 +181,15 @@ private struct CurrentPlanCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var manageTitle: String {
+        switch billingMode {
+        case .demo:
+            studio.canUseCustomerPortal ? "Manage Subscription" : "Portal Pending"
+        case .live:
+            "Open Stripe Portal"
         }
     }
 }
@@ -129,23 +227,26 @@ private struct UsageCard: View {
 
 private struct PlanComparisonGrid: View {
     @Bindable var studio: SiteClawStudio
+    let billingMode: BillingMode
+    let action: (SiteClawSubscriptionPlan) -> Void
 
     var body: some View {
         VStack(spacing: 12) {
             SectionHeader(
                 title: "Plans",
-                subtitle: "Stripe Checkout will replace these mock plan actions."
+                subtitle: billingMode == .demo
+                    ? "Demo mode updates local plan state instantly."
+                    : "Live mode opens Stripe Checkout for paid plans."
             )
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
                 ForEach(SiteClawSubscriptionPlan.allCases, id: \.self) { plan in
                     PlanCard(
                         plan: plan,
-                        isCurrent: plan == studio.subscription.plan
+                        isCurrent: plan == studio.subscription.plan,
+                        billingMode: billingMode
                     ) {
-                        Task {
-                            await studio.chooseBillingPlan(plan)
-                        }
+                        action(plan)
                     }
                 }
             }
@@ -156,6 +257,7 @@ private struct PlanComparisonGrid: View {
 private struct PlanCard: View {
     let plan: SiteClawSubscriptionPlan
     let isCurrent: Bool
+    let billingMode: BillingMode
     let action: () -> Void
 
     var body: some View {
@@ -191,18 +293,42 @@ private struct PlanCard: View {
                 Button {
                     action()
                 } label: {
-                    Label(isCurrent ? "Current Plan" : "Select", systemImage: isCurrent ? "checkmark" : "arrow.right")
+                    Label(buttonTitle, systemImage: buttonIcon)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(isCurrent ? SiteClawTheme.mint : SiteClawTheme.coral)
-                .disabled(isCurrent)
+                .disabled(isCurrent || (billingMode == .live && plan == .founding))
             }
         }
     }
 
     private var editLabel: String {
         plan.editLimit < 0 ? "Unlimited edits" : "\(plan.editLimit) edits per period"
+    }
+
+    private var buttonTitle: String {
+        if isCurrent {
+            return "Current Plan"
+        }
+
+        if billingMode == .live {
+            return plan == .founding ? "Manual Only" : "Open Checkout"
+        }
+
+        return "Select"
+    }
+
+    private var buttonIcon: String {
+        if isCurrent {
+            return "checkmark"
+        }
+
+        if billingMode == .live {
+            return plan == .founding ? "person.badge.shield.checkmark.fill" : "safari.fill"
+        }
+
+        return "arrow.right"
     }
 }
 

@@ -16,6 +16,7 @@ final class SiteClawStudio {
     var secretBoundary: [SiteClawSecretBoundary]
     var accountStatus: String
     var billingStatus: String
+    var pendingBillingURL: URL?
     var messages: [BuilderMessage]
     var updates: [SiteUpdate]
     var metrics: [DashboardMetric]
@@ -45,6 +46,7 @@ final class SiteClawStudio {
         secretBoundary: [SiteClawSecretBoundary] = SiteClawMock.secretBoundary,
         accountStatus: String = "Signed in with local mock auth.",
         billingStatus: String = "Billing is mocked until Stripe checkout routes are wired.",
+        pendingBillingURL: URL? = nil,
         messages: [BuilderMessage],
         updates: [SiteUpdate],
         metrics: [DashboardMetric],
@@ -73,6 +75,7 @@ final class SiteClawStudio {
         self.secretBoundary = secretBoundary
         self.accountStatus = accountStatus
         self.billingStatus = billingStatus
+        self.pendingBillingURL = pendingBillingURL
         self.messages = messages
         self.updates = updates
         self.metrics = metrics
@@ -332,6 +335,19 @@ final class SiteClawStudio {
         }
     }
 
+    func startProductionSignIn(email: String, restaurantName: String) async {
+        do {
+            let gateway = ProductionSiteClawGateway()
+            account = try await gateway.signIn(email: email, restaurantName: restaurantName)
+            if restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                restaurant.name = restaurantName
+            }
+            accountStatus = "Supabase email sign-in started. Complete the OTP email flow to finish the live session."
+        } catch {
+            accountStatus = error.localizedDescription
+        }
+    }
+
     func signOut() {
         account = SiteClawMock.signedOutAccount
         accountStatus = "Signed out locally. Production Supabase session clearing comes next."
@@ -340,13 +356,33 @@ final class SiteClawStudio {
     func chooseBillingPlan(_ plan: SiteClawSubscriptionPlan) async {
         do {
             let gateway = MockSiteClawGateway()
-            subscription = try await gateway.checkout(plan: plan, currentSubscription: subscription)
+            let result = try await gateway.checkout(plan: plan, currentSubscription: subscription)
+            subscription = result.subscription
+            pendingBillingURL = result.checkoutURL
             monthlyPrice = subscription.plan.monthlyPrice
             billingStatus = plan == .founding
                 ? "Founding partner access is active with unlimited edits."
                 : "\(plan.title) checkout mocked. Stripe will replace this local state."
         } catch {
             billingStatus = error.localizedDescription
+        }
+    }
+
+    func startProductionCheckout(_ plan: SiteClawSubscriptionPlan) async -> URL? {
+        do {
+            let gateway = ProductionSiteClawGateway()
+            let result = try await gateway.checkout(plan: plan, currentSubscription: subscription)
+            subscription = result.subscription
+            pendingBillingURL = result.checkoutURL
+            monthlyPrice = plan.monthlyPrice
+            billingStatus = result.checkoutURL == nil
+                ? "\(plan.title) checkout route responded without a URL."
+                : "Opening Stripe Checkout for \(plan.title)."
+            return result.checkoutURL
+        } catch {
+            pendingBillingURL = nil
+            billingStatus = error.localizedDescription
+            return nil
         }
     }
 
@@ -357,6 +393,18 @@ final class SiteClawStudio {
             billingStatus = "Customer portal route ready: \(portalURL)"
         } catch {
             billingStatus = error.localizedDescription
+        }
+    }
+
+    func startProductionCustomerPortal() async -> URL? {
+        do {
+            let gateway = ProductionSiteClawGateway()
+            let portalURL = try await gateway.openCustomerPortal(for: account)
+            billingStatus = "Opening Stripe Customer Portal."
+            return URL(string: portalURL)
+        } catch {
+            billingStatus = error.localizedDescription
+            return nil
         }
     }
 

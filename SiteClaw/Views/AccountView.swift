@@ -9,15 +9,23 @@ struct AccountView: View {
     @Bindable var studio: SiteClawStudio
     @State private var email = "carlo@siteclaw.app"
     @State private var restaurantName = "Pho Lotus Kitchen"
+    @State private var authMode: AuthMode = .demo
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    AuthModeCard(mode: $authMode)
+
                     if studio.account.isAuthenticated {
                         AccountSummaryCard(studio: studio)
                     } else {
-                        SignInShellCard(studio: studio, email: $email, restaurantName: $restaurantName)
+                        SignInShellCard(
+                            studio: studio,
+                            email: $email,
+                            restaurantName: $restaurantName,
+                            authMode: authMode
+                        )
                     }
 
                     GatewayStatusList(endpoints: studio.gatewayEndpoints)
@@ -34,7 +42,7 @@ struct AccountView: View {
                             studio.signOut()
                         } else {
                             Task {
-                                await studio.signInWithMockGateway(email: email, restaurantName: restaurantName)
+                                await signIn()
                             }
                         }
                     } label: {
@@ -45,21 +53,84 @@ struct AccountView: View {
             }
         }
     }
+
+    private func signIn() async {
+        switch authMode {
+        case .demo:
+            await studio.signInWithMockGateway(email: email, restaurantName: restaurantName)
+        case .live:
+            await studio.startProductionSignIn(email: email, restaurantName: restaurantName)
+        }
+    }
+}
+
+private enum AuthMode: String, CaseIterable, Identifiable {
+    case demo = "Demo"
+    case live = "Live"
+
+    var id: Self { self }
+
+    var detail: String {
+        switch self {
+        case .demo: "Instant local sign-in for the class demo."
+        case .live: "Calls the backend Supabase OTP route when env vars are configured."
+        }
+    }
+}
+
+private struct AuthModeCard: View {
+    @Binding var mode: AuthMode
+
+    var body: some View {
+        ClawCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "person.badge.key.fill")
+                        .font(.title3)
+                        .foregroundStyle(SiteClawTheme.sky)
+                        .frame(width: 30, height: 30)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Auth Mode")
+                            .font(.headline)
+                        Text(mode.detail)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Picker("Auth mode", selection: $mode) {
+                    ForEach(AuthMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+    }
 }
 
 private struct SignInShellCard: View {
     @Bindable var studio: SiteClawStudio
     @Binding var email: String
     @Binding var restaurantName: String
+    let authMode: AuthMode
 
     var body: some View {
         ClawCard {
             VStack(alignment: .leading, spacing: 14) {
-                Label("Auth Shell", systemImage: "person.badge.key.fill")
-                    .font(.headline)
-                    .foregroundStyle(SiteClawTheme.coral)
+                HStack {
+                    Label(authMode == .demo ? "Demo Sign In" : "Supabase Sign In", systemImage: "person.badge.key.fill")
+                        .font(.headline)
+                        .foregroundStyle(SiteClawTheme.coral)
+                    Spacer()
+                    LabelPill(title: authMode.rawValue, systemImage: "switch.2", color: SiteClawTheme.sky)
+                }
 
-                Text("Use mock auth to exercise the account, billing, and restaurant ownership flow before Supabase is connected.")
+                Text(authMode == .demo
+                    ? "Use mock auth to exercise account, billing, and ownership flow without network risk."
+                    : "Starts Supabase email OTP through the backend. Email completion is the next live-session step.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -71,10 +142,15 @@ private struct SignInShellCard: View {
 
                 Button {
                     Task {
-                        await studio.signInWithMockGateway(email: email, restaurantName: restaurantName)
+                        switch authMode {
+                        case .demo:
+                            await studio.signInWithMockGateway(email: email, restaurantName: restaurantName)
+                        case .live:
+                            await studio.startProductionSignIn(email: email, restaurantName: restaurantName)
+                        }
                     }
                 } label: {
-                    Label("Sign In", systemImage: "arrow.right.circle.fill")
+                    Label(authMode == .demo ? "Sign In" : "Send Email Link", systemImage: authMode == .demo ? "arrow.right.circle.fill" : "envelope.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)

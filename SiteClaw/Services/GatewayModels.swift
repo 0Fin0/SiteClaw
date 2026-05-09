@@ -115,6 +115,11 @@ struct SiteClawSubscription: Codable, Hashable, Sendable {
     }
 }
 
+struct SiteClawCheckoutResult: Hashable, Sendable {
+    var subscription: SiteClawSubscription
+    var checkoutURL: URL?
+}
+
 enum SiteClawGatewayKind: String, CaseIterable, Hashable, Sendable {
     case supabaseAuth
     case supabaseStorage
