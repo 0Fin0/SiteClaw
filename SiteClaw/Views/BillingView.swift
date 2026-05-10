@@ -279,8 +279,8 @@ private struct PlanComparisonGrid: View {
             SectionHeader(
                 title: "Plans",
                 subtitle: billingMode == .demo
-                    ? "Demo mode updates local plan state instantly."
-                    : "Live mode opens Stripe Checkout for paid plans."
+                    ? "Demo mode compares plan value and updates local state only."
+                    : "Live mode opens Stripe Checkout for paid plans using the signed-in account email."
             )
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
@@ -310,23 +310,31 @@ private struct PlanCard: View {
 
     var body: some View {
         ClawCard {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text(plan.title)
-                        .font(.headline)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(plan.title)
+                            .font(.title3.bold())
+                        Text(plan.audience)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
                     Spacer()
+
                     if isCurrent {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(SiteClawTheme.mint)
+                        LabelPill(title: "Current", systemImage: "checkmark.circle.fill", color: SiteClawTheme.mint)
                     }
                 }
 
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text("$\(plan.monthlyPrice)")
+                    Text(priceLabel)
                         .font(.title.bold())
-                    Text("/mo")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if plan.monthlyPrice > 0 {
+                        Text("/mo")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Text(plan.summary)
@@ -337,6 +345,27 @@ private struct PlanCard: View {
                 Label(editLabel, systemImage: plan.editLimit < 0 ? "infinity" : "pencil.and.list.clipboard")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(SiteClawTheme.sky)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(plan.benefits, id: \.self) { benefit in
+                        Label {
+                            Text(benefit)
+                                .font(.footnote)
+                                .foregroundStyle(SiteClawTheme.ink)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } icon: {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(SiteClawTheme.mint)
+                        }
+                    }
+                }
+
+                Text(plan.billingNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Button {
                     action()
@@ -359,6 +388,14 @@ private struct PlanCard: View {
         plan.editLimit < 0 ? "Unlimited edits" : "\(plan.editLimit) edits per period"
     }
 
+    private var priceLabel: String {
+        switch plan {
+        case .founding: "$0"
+        case .starter: "$\(plan.monthlyPrice)"
+        case .pro: "$\(plan.monthlyPrice)"
+        }
+    }
+
     private var buttonTitle: String {
         if isProcessing {
             return billingMode == .live ? "Opening Checkout" : "Updating Plan"
@@ -372,7 +409,7 @@ private struct PlanCard: View {
             return plan == .founding ? "Manual Only" : "Open Checkout"
         }
 
-        return "Select"
+        return "Select Demo Plan"
     }
 
     private var buttonIcon: String {
@@ -385,6 +422,59 @@ private struct PlanCard: View {
         }
 
         return "arrow.right"
+    }
+}
+
+private extension SiteClawSubscriptionPlan {
+    var audience: String {
+        switch self {
+        case .founding:
+            "Special early-partner entitlement"
+        case .starter:
+            "Best for single-location restaurants"
+        case .pro:
+            "For active operators with frequent updates"
+        }
+    }
+
+    var benefits: [String] {
+        switch self {
+        case .founding:
+            [
+                "Free forever for approved founding partners",
+                "Core SiteClaw site generation flow",
+                "Demo and Live workspace access",
+                "Early feature access where appropriate",
+                "Partner feedback channel for shaping the product",
+            ]
+        case .starter:
+            [
+                "Website generation from restaurant info and menu",
+                "Basic publishing support for a simple live site",
+                "Menu, hours, and contact updates",
+                "restaurant.json copy/export support",
+                "5 edits per billing period for small operators",
+            ]
+        case .pro:
+            [
+                "Unlimited edits for frequent menu and hours changes",
+                "Priority publishing and correction workflow",
+                "Advanced content corrections before publishing",
+                "More room for events, promos, and seasonal updates",
+                "Future path for locations, SEO, integrations, and analytics",
+            ]
+        }
+    }
+
+    var billingNote: String {
+        switch self {
+        case .founding:
+            "This is not a standard public plan; it is assigned manually."
+        case .starter:
+            "A strong default for owners who need a publish-ready site without heavy ongoing changes."
+        case .pro:
+            "Upgrade when the business needs more frequent edits, campaigns, or operational support."
+        }
     }
 }
 

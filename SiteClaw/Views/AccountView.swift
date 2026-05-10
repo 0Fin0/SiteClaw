@@ -41,6 +41,15 @@ struct AccountView: View {
     }
 }
 
+private struct AccountReadinessSignal: Identifiable {
+    let id = UUID()
+    var title: String
+    var value: String
+    var detail: String
+    var systemImage: String
+    var color: Color
+}
+
 private enum AuthMode: String, CaseIterable, Identifiable {
     case demo = "Demo"
     case live = "Live"
@@ -281,12 +290,25 @@ private struct AccountSummaryCard: View {
                 Divider()
 
                 VStack(spacing: 10) {
-                    AccountField(title: "Restaurant", value: studio.restaurant.name)
-                    AccountField(title: "Workspace", value: studio.account.restaurantSlug)
-                    AccountField(title: "Sign-in", value: studio.account.authProvider)
+                    AccountField(
+                        title: "Restaurant",
+                        value: studio.restaurant.name,
+                        helpText: "The active restaurant or business profile SiteClaw uses to generate this website."
+                    )
+                    AccountField(
+                        title: "Workspace",
+                        value: workspaceLabel,
+                        helpText: "The editable project area for this restaurant's site, content, publishing state, and settings."
+                    )
+                    AccountField(
+                        title: "Sign-in",
+                        value: signInLabel,
+                        helpText: "Shows whether this account is using local Demo auth, a pending Live flow, or verified production auth."
+                    )
                     AccountField(
                         title: "Last active",
-                        value: studio.account.lastSignedInAt?.formatted(date: .abbreviated, time: .shortened) ?? "Not recorded"
+                        value: lastActiveLabel,
+                        helpText: "The most recent known account, workspace, or publishing activity in this app session."
                     )
                 }
 
@@ -302,6 +324,26 @@ private struct AccountSummaryCard: View {
             }
         }
     }
+
+    private var workspaceLabel: String {
+        studio.account.restaurantSlug.isEmpty ? "Demo workspace" : studio.account.restaurantSlug
+    }
+
+    private var signInLabel: String {
+        if studio.account.authProvider.localizedCaseInsensitiveContains("supabase") {
+            return studio.account.isAuthenticated ? "Live - Supabase verified" : "Live - code pending"
+        }
+
+        return "Demo - local account"
+    }
+
+    private var lastActiveLabel: String {
+        if let lastSiteExportedAt = studio.lastSiteExportedAt {
+            return lastSiteExportedAt.formatted(date: .abbreviated, time: .shortened)
+        }
+
+        return studio.account.lastSignedInAt?.formatted(date: .abbreviated, time: .shortened) ?? "Not recorded"
+    }
 }
 
 private struct WorkspaceSummaryCard: View {
@@ -309,7 +351,7 @@ private struct WorkspaceSummaryCard: View {
 
     var body: some View {
         ClawCard {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "storefront.fill")
                         .font(.title2)
@@ -339,13 +381,190 @@ private struct WorkspaceSummaryCard: View {
 
                 Divider()
 
-                HStack(spacing: 12) {
-                    WorkspaceMetric(value: "\(studio.draft.pages.count)", label: "Pages")
-                    WorkspaceMetric(value: "\(studio.restaurant.menuItems.count)", label: "Menu items")
-                    WorkspaceMetric(value: "\(studio.completionPercent)%", label: "Ready")
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(readinessScore)%")
+                            .font(.largeTitle.bold())
+                            .foregroundStyle(readinessColor)
+                        Text("Site readiness score")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(siteStatus)
+                            .font(.headline)
+                            .foregroundStyle(SiteClawTheme.ink)
+                        Text(lastBuildLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Divider()
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 12)], spacing: 12) {
+                    ForEach(readinessSignals) { signal in
+                        WorkspaceMetric(signal: signal)
+                    }
+                }
+
+                if !needsAttention.isEmpty {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Needs attention", systemImage: "exclamationmark.triangle.fill")
+                            .font(.headline)
+                            .foregroundStyle(SiteClawTheme.gold)
+
+                        ForEach(needsAttention, id: \.self) { item in
+                            Label(item, systemImage: "circle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private var readinessScore: Int {
+        var completed = 0
+        let checks = [
+            !studio.restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !studio.restaurant.hours.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !studio.restaurant.menuItems.isEmpty,
+            menuDetailsComplete,
+            studio.draft.pages.count >= 3,
+            studio.draft.seoKeywords.count >= 3,
+            !studio.restaurant.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !studio.restaurant.streetAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            studio.isDraftGenerated,
+        ]
+
+        for check in checks where check {
+            completed += 1
+        }
+
+        return Int((Double(completed) / Double(checks.count)) * 100)
+    }
+
+    private var readinessColor: Color {
+        if readinessScore >= 85 { return SiteClawTheme.mint }
+        if readinessScore >= 65 { return SiteClawTheme.gold }
+        return SiteClawTheme.coral
+    }
+
+    private var siteStatus: String {
+        if studio.isPublished { return "Published" }
+        if studio.missingDetails.isEmpty && studio.isDraftGenerated { return "Ready to publish" }
+        if studio.isDraftGenerated { return "Needs review" }
+        return "Draft needed"
+    }
+
+    private var lastBuildLabel: String {
+        if let lastSiteExportedAt = studio.lastSiteExportedAt {
+            return "Last published \(lastSiteExportedAt.formatted(date: .abbreviated, time: .shortened))"
+        }
+
+        return studio.isDraftGenerated ? "Draft generated this session" : "No build yet"
+    }
+
+    private var menuDetailsComplete: Bool {
+        !studio.restaurant.menuItems.isEmpty && studio.restaurant.menuItems.allSatisfy {
+            !$0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (($0.price ?? 0) > 0)
+        }
+    }
+
+    private var readinessSignals: [AccountReadinessSignal] {
+        [
+            AccountReadinessSignal(
+                title: "Pages generated",
+                value: "\(studio.draft.pages.count)",
+                detail: studio.draft.pages.joined(separator: ", "),
+                systemImage: "doc.text.fill",
+                color: SiteClawTheme.sky
+            ),
+            AccountReadinessSignal(
+                title: "Menu coverage",
+                value: "\(studio.restaurant.menuItems.count)",
+                detail: menuDetailsComplete ? "Prices and descriptions ready" : "Review item details",
+                systemImage: "fork.knife",
+                color: menuDetailsComplete ? SiteClawTheme.mint : SiteClawTheme.gold
+            ),
+            AccountReadinessSignal(
+                title: "Hours",
+                value: hasHours ? "Detected" : "Missing",
+                detail: hasHours ? studio.restaurant.hours : "Add operating hours",
+                systemImage: "clock.fill",
+                color: hasHours ? SiteClawTheme.mint : SiteClawTheme.gold
+            ),
+            AccountReadinessSignal(
+                title: "Contact",
+                value: hasContact ? "Detected" : "Missing",
+                detail: hasContact ? studio.restaurant.phone : "Add phone number",
+                systemImage: "phone.fill",
+                color: hasContact ? SiteClawTheme.mint : SiteClawTheme.gold
+            ),
+            AccountReadinessSignal(
+                title: "Location",
+                value: hasLocation ? "Detected" : "Missing",
+                detail: hasLocation ? studio.restaurant.formattedAddress : "Add street address",
+                systemImage: "mappin.and.ellipse",
+                color: hasLocation ? SiteClawTheme.mint : SiteClawTheme.gold
+            ),
+            AccountReadinessSignal(
+                title: "SEO basics",
+                value: studio.draft.seoKeywords.count >= 3 ? "Ready" : "Needs terms",
+                detail: "\(studio.draft.seoKeywords.count) search phrases",
+                systemImage: "magnifyingglass",
+                color: studio.draft.seoKeywords.count >= 3 ? SiteClawTheme.mint : SiteClawTheme.gold
+            ),
+            AccountReadinessSignal(
+                title: "Corrections",
+                value: "\(studio.missingDetails.count)",
+                detail: studio.missingDetails.isEmpty ? "No required fixes" : "Owner review needed",
+                systemImage: "checklist",
+                color: studio.missingDetails.isEmpty ? SiteClawTheme.mint : SiteClawTheme.gold
+            ),
+            AccountReadinessSignal(
+                title: "JSON schema",
+                value: studio.restaurantJSONString.isEmpty ? "Check" : "Valid",
+                detail: "restaurant.json export available",
+                systemImage: "curlybraces",
+                color: studio.restaurantJSONString.isEmpty ? SiteClawTheme.gold : SiteClawTheme.mint
+            ),
+        ]
+    }
+
+    private var needsAttention: [String] {
+        var items = studio.missingDetails.map(\.title)
+
+        if !hasContact {
+            items.append("Contact info not detected")
+        }
+
+        if !hasLocation {
+            items.append("Location/address not detected")
+        }
+
+        items.append("Photos/media not added yet")
+
+        return Array(Set(items)).sorted()
+    }
+
+    private var hasHours: Bool {
+        !studio.restaurant.hours.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hasContact: Bool {
+        !studio.restaurant.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hasLocation: Bool {
+        !studio.restaurant.streetAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -386,22 +605,25 @@ private struct AccountPlanSummaryCard: View {
 }
 
 private struct WorkspaceMetric: View {
-    let value: String
-    let label: String
+    let signal: AccountReadinessSignal
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(value)
-                .font(.title3.bold())
+        VStack(alignment: .leading, spacing: 6) {
+            Image(systemName: signal.systemImage)
+                .font(.headline)
+                .foregroundStyle(signal.color)
+            Text(signal.value)
+                .font(.headline)
                 .foregroundStyle(SiteClawTheme.ink)
-            Text(label)
+            Text(signal.title)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
+            Text(signal.detail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(SiteClawTheme.background)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -474,17 +696,56 @@ private struct StatusMessage: View {
 private struct AccountField: View {
     let title: String
     let value: String
+    var helpText: String? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            HStack(spacing: 5) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                if let helpText {
+                    AccountInfoButton(title: title, message: helpText)
+                }
+            }
+
             Spacer(minLength: 16)
+
             Text(value.isEmpty ? "Not set" : value)
                 .font(.subheadline.weight(.medium))
                 .multilineTextAlignment(.trailing)
                 .lineLimit(2)
+        }
+    }
+}
+
+private struct AccountInfoButton: View {
+    let title: String
+    let message: String
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.caption)
+                .foregroundStyle(SiteClawTheme.sky)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title) info")
+        .popover(isPresented: $isPresented) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(.headline)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            .frame(width: 260, alignment: .leading)
         }
     }
 }
