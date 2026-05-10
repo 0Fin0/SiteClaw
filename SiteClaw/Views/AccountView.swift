@@ -30,25 +30,13 @@ struct AccountView: View {
                         )
                     }
 
-                    GatewayStatusList(endpoints: studio.gatewayEndpoints)
-                    SecretBoundaryList(items: studio.secretBoundary)
+                    WorkspaceSummaryCard(studio: studio)
+                    AccountPlanSummaryCard(studio: studio)
                 }
                 .padding(16)
             }
             .background(SiteClawTheme.background.ignoresSafeArea())
             .navigationTitle("Account")
-            .toolbar {
-                if studio.account.isAuthenticated {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            studio.signOut()
-                        } label: {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                        }
-                        .accessibilityLabel("Sign out")
-                    }
-                }
-            }
         }
     }
 }
@@ -293,11 +281,11 @@ private struct AccountSummaryCard: View {
                 Divider()
 
                 VStack(spacing: 10) {
-                    AccountField(title: "Restaurant ID", value: studio.account.restaurantID)
-                    AccountField(title: "Slug", value: studio.account.restaurantSlug)
-                    AccountField(title: "Provider", value: studio.account.authProvider)
+                    AccountField(title: "Restaurant", value: studio.restaurant.name)
+                    AccountField(title: "Workspace", value: studio.account.restaurantSlug)
+                    AccountField(title: "Sign-in", value: studio.account.authProvider)
                     AccountField(
-                        title: "Last sign in",
+                        title: "Last active",
                         value: studio.account.lastSignedInAt?.formatted(date: .abbreviated, time: .shortened) ?? "Not recorded"
                     )
                 }
@@ -313,6 +301,107 @@ private struct AccountSummaryCard: View {
                 StatusMessage(text: studio.accountStatus, kind: .success)
             }
         }
+    }
+}
+
+private struct WorkspaceSummaryCard: View {
+    @Bindable var studio: SiteClawStudio
+
+    var body: some View {
+        ClawCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "storefront.fill")
+                        .font(.title2)
+                        .foregroundStyle(SiteClawTheme.coral)
+                        .frame(width: 36, height: 36)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Restaurant Workspace")
+                            .font(.headline)
+                        Text(studio.restaurant.name)
+                            .font(.title3.bold())
+                        Text(studio.draft.url)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer()
+
+                    LabelPill(
+                        title: studio.publishStatus,
+                        systemImage: studio.isPublished ? "checkmark.seal.fill" : "doc.badge.clock.fill",
+                        color: studio.isPublished ? SiteClawTheme.mint : SiteClawTheme.gold
+                    )
+                }
+
+                Divider()
+
+                HStack(spacing: 12) {
+                    WorkspaceMetric(value: "\(studio.draft.pages.count)", label: "Pages")
+                    WorkspaceMetric(value: "\(studio.restaurant.menuItems.count)", label: "Menu items")
+                    WorkspaceMetric(value: "\(studio.completionPercent)%", label: "Ready")
+                }
+            }
+        }
+    }
+}
+
+private struct AccountPlanSummaryCard: View {
+    @Bindable var studio: SiteClawStudio
+
+    var body: some View {
+        ClawCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "creditcard.fill")
+                        .font(.title2)
+                        .foregroundStyle(SiteClawTheme.sky)
+                        .frame(width: 36, height: 36)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Plan & Usage")
+                            .font(.headline)
+                        Text("\(studio.subscription.plan.title) - $\(studio.subscription.plan.monthlyPrice)/mo")
+                            .font(.title3.bold())
+                        Text(studio.subscription.plan.summary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer()
+                }
+
+                Divider()
+
+                AccountField(title: "Status", value: studio.subscription.status.title)
+                AccountField(title: "Edit usage", value: studio.subscription.usageLabel)
+                AccountField(title: "Renews", value: studio.billingRenewalLabel)
+            }
+        }
+    }
+}
+
+private struct WorkspaceMetric: View {
+    let value: String
+    let label: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value)
+                .font(.title3.bold())
+                .foregroundStyle(SiteClawTheme.ink)
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(SiteClawTheme.background)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -396,84 +485,6 @@ private struct AccountField: View {
                 .font(.subheadline.weight(.medium))
                 .multilineTextAlignment(.trailing)
                 .lineLimit(2)
-        }
-    }
-}
-
-private struct GatewayStatusList: View {
-    let endpoints: [SiteClawGatewayEndpoint]
-
-    var body: some View {
-        VStack(spacing: 12) {
-            SectionHeader(
-                title: "Gateway Layer",
-                subtitle: "Mock and production edges for auth, storage, billing, and pipeline calls."
-            )
-
-            ForEach(endpoints) { endpoint in
-                ClawCard {
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: icon(for: endpoint.kind))
-                            .font(.title3)
-                            .foregroundStyle(endpoint.keepsSecretOnBackend ? SiteClawTheme.coral : SiteClawTheme.sky)
-                            .frame(width: 30, height: 30)
-
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack {
-                                Text(endpoint.kind.title)
-                                    .font(.headline)
-                                Spacer()
-                                LabelPill(title: endpoint.mode.title, systemImage: "switch.2", color: SiteClawTheme.sky)
-                            }
-
-                            Text(endpoint.status)
-                                .font(.subheadline.weight(.semibold))
-                            Text(endpoint.detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func icon(for kind: SiteClawGatewayKind) -> String {
-        switch kind {
-        case .supabaseAuth: "person.badge.key.fill"
-        case .supabaseStorage: "externaldrive.fill"
-        case .stripe: "creditcard.fill"
-        case .pipeline: "arrow.triangle.2.circlepath"
-        }
-    }
-}
-
-private struct SecretBoundaryList: View {
-    let items: [SiteClawSecretBoundary]
-
-    var body: some View {
-        VStack(spacing: 12) {
-            SectionHeader(
-                title: "Secret Boundary",
-                subtitle: "Backend-only responsibilities that stay out of the native app."
-            )
-
-            ForEach(items) { item in
-                ClawCard {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(item.title)
-                                .font(.headline)
-                            Spacer()
-                            LabelPill(title: item.owner, systemImage: "lock.shield.fill", color: SiteClawTheme.mint)
-                        }
-
-                        Text(item.detail)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
         }
     }
 }

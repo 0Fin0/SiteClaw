@@ -45,7 +45,7 @@ final class SiteClawStudio {
         gatewayEndpoints: [SiteClawGatewayEndpoint] = SiteClawMock.gatewayEndpoints,
         secretBoundary: [SiteClawSecretBoundary] = SiteClawMock.secretBoundary,
         accountStatus: String = "Signed in with local mock auth.",
-        billingStatus: String = "Billing is mocked until Stripe checkout routes are wired.",
+        billingStatus: String = "Starter plan active. Demo mode uses local billing state; Live mode opens Stripe when configured.",
         pendingBillingURL: URL? = nil,
         messages: [BuilderMessage],
         updates: [SiteUpdate],
@@ -379,7 +379,7 @@ final class SiteClawStudio {
             monthlyPrice = subscription.plan.monthlyPrice
             billingStatus = plan == .founding
                 ? "Founding partner access is active with unlimited edits."
-                : "\(plan.title) checkout mocked. Stripe will replace this local state."
+                : "\(plan.title) plan selected for this demo account."
         } catch {
             billingStatus = error.localizedDescription
         }
@@ -410,8 +410,8 @@ final class SiteClawStudio {
     func openMockCustomerPortal() async {
         do {
             let gateway = MockSiteClawGateway()
-            let portalURL = try await gateway.openCustomerPortal(for: account)
-            billingStatus = "Customer portal route ready: \(portalURL)"
+            _ = try await gateway.openCustomerPortal(for: account)
+            billingStatus = "Demo billing details are shown in-app. Live mode opens the Stripe customer portal."
         } catch {
             billingStatus = error.localizedDescription
         }

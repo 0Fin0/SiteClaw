@@ -41,19 +41,6 @@ struct BillingView: View {
             }
             .background(SiteClawTheme.background.ignoresSafeArea())
             .navigationTitle("Billing")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        Task {
-                            await openCustomerPortal()
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.forward.app.fill")
-                    }
-                    .disabled(!studio.account.isAuthenticated || isOpeningPortal)
-                    .accessibilityLabel("Open customer portal")
-                }
-            }
         }
     }
 
@@ -105,7 +92,7 @@ private enum BillingMode: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .demo: "Instant local plan switching for the class demo."
+        case .demo: "Review plans and update this demo account locally."
         case .live: "Opens Stripe-hosted Checkout and Portal when backend env vars are configured."
         }
     }
@@ -205,7 +192,7 @@ private struct CurrentPlanCard: View {
                 } label: {
                     BillingProgressLabel(
                         title: isOpeningPortal ? "Opening Portal" : manageTitle,
-                        systemImage: billingMode == .live ? "safari.fill" : "creditcard.and.123",
+                        systemImage: billingMode == .live ? "safari.fill" : "list.bullet.rectangle.portrait.fill",
                         isLoading: isOpeningPortal,
                         progressTint: .white
                     )
@@ -225,7 +212,7 @@ private struct CurrentPlanCard: View {
     private var manageTitle: String {
         switch billingMode {
         case .demo:
-            studio.canUseCustomerPortal ? "Manage Subscription" : "Portal Pending"
+            "View Billing Details"
         case .live:
             "Open Stripe Portal"
         }
