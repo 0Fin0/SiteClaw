@@ -36,6 +36,7 @@ enum GeneratedSiteRenderer {
         let title = escape(data.seo.title.isEmpty ? data.basics.name : data.seo.title)
         let publicDescription = publicStory(from: data.seo.description.isEmpty ? data.basics.description : data.seo.description)
         let description = escape(publicDescription)
+        let rawRestaurantName = data.basics.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let restaurantName = escape(data.basics.name)
         let tagline = escape(data.basics.tagline.isEmpty ? draft.headline : data.basics.tagline)
         let story = escape(publicStory(from: data.basics.description))
@@ -43,6 +44,7 @@ enum GeneratedSiteRenderer {
         let address = data.contact.address
         let addressLine = fullAddressLine(from: address)
         let addressDisplay = escape(addressLine.isEmpty ? "Location coming soon" : addressLine)
+        let locationName = customerLocationName(from: address)
         let phone = data.contact.phone.trimmingCharacters(in: .whitespacesAndNewlines)
         let phoneActionHTML = phone.isEmpty
             ? ""
@@ -58,12 +60,15 @@ enum GeneratedSiteRenderer {
         let menuHTML = makeMenuHTML(from: data.menu)
         let menuCount = data.menu.categories.flatMap(\.items).count
         let menuSummary = menuCount == 0 ? "Menu details coming soon" : "\(menuCount) featured menu items"
+        let menuLead = escape(makeMenuLead(from: data.menu))
         let hoursHTML = makeHoursHTML(from: data.hours)
         let hoursSummary = escape(makeHoursSummary(from: data.hours))
         let keywords = escape(data.seo.keywords.joined(separator: ", "))
         let primaryColor = sanitizeHexColor(data.branding.primaryColor, fallback: "#0D1A2B")
         let accentColor = sanitizeHexColor(data.branding.accentColor, fallback: "#E84F3C")
         let callToAction = escape(draft.callToAction.isEmpty ? "View Menu" : draft.callToAction)
+        let visitHeadline = escape(makeVisitHeadline(restaurantName: rawRestaurantName, locationName: locationName))
+        let visitCopy = escape(makeVisitCopy(from: data, locationName: locationName))
 
         return """
         <!doctype html>
@@ -101,7 +106,7 @@ enum GeneratedSiteRenderer {
               text-decoration: none;
             }
             header {
-              min-height: 64vh;
+              min-height: 62vh;
               display: grid;
               align-items: end;
               color: white;
@@ -225,7 +230,7 @@ enum GeneratedSiteRenderer {
             .split {
               display: grid;
               grid-template-columns: minmax(0, 0.9fr) minmax(280px, 1.1fr);
-              gap: clamp(26px, 5vw, 64px);
+              gap: clamp(24px, 4vw, 54px);
               align-items: start;
             }
             .lead { color: var(--muted); font-size: 1.08rem; }
@@ -238,9 +243,9 @@ enum GeneratedSiteRenderer {
               display: flex;
               flex-direction: column;
               justify-content: space-between;
-              gap: 12px;
-              min-height: 164px;
-              padding: 18px;
+              gap: 10px;
+              min-height: 148px;
+              padding: 17px;
               border: 1px solid var(--line);
               border-radius: 8px;
               background: white;
@@ -283,23 +288,28 @@ enum GeneratedSiteRenderer {
               padding-bottom: 8px;
               border-bottom: 1px solid var(--line);
             }
-            .ready-cta {
+            .visit-cta {
               display: flex;
               align-items: center;
               justify-content: space-between;
               gap: 24px;
-              margin: 58px 0 0;
-              padding: clamp(24px, 5vw, 42px);
+              margin: 48px 0 0;
+              padding: clamp(24px, 5vw, 40px);
               border: 1px solid var(--line);
               border-radius: 8px;
               background: var(--primary);
               color: white;
             }
-            .ready-cta h2 {
+            .visit-cta h2 {
               max-width: 720px;
               margin-bottom: 10px;
             }
-            .ready-cta p { margin: 0; color: rgba(255, 255, 255, 0.78); }
+            .visit-cta p { margin: 0; color: rgba(255, 255, 255, 0.78); }
+            .visit-cta .actions {
+              margin: 0;
+              flex: 0 0 auto;
+              justify-content: flex-end;
+            }
             footer {
               padding: 34px 20px;
               text-align: center;
@@ -323,13 +333,22 @@ enum GeneratedSiteRenderer {
                 border-radius: 999px;
                 background: rgba(255, 255, 255, 0.14);
               }
-              header { min-height: 76vh; }
-              .hero { padding-top: 154px; }
+              header { min-height: 70vh; }
+              .hero { padding-top: 144px; padding-bottom: 46px; }
+              section { padding: 46px 0; }
+              .split { gap: 18px; }
               .split, .info-grid, .menu-grid, .fact-strip { grid-template-columns: 1fr; }
               .fact-strip { margin-top: -22px; }
-              .ready-cta {
+              .menu-item { min-height: auto; }
+              .visit-cta {
                 align-items: stretch;
                 flex-direction: column;
+              }
+              .visit-cta .actions {
+                justify-content: stretch;
+              }
+              .visit-cta .button {
+                width: 100%;
               }
             }
           </style>
@@ -385,7 +404,7 @@ enum GeneratedSiteRenderer {
             <section id="menu" class="split">
               <div>
                 <h2>Featured Menu</h2>
-                <p class="lead">Popular dishes from the featured menu.</p>
+                <p class="lead">\(menuLead)</p>
               </div>
               <div class="menu-grid">
                 \(menuHTML)
@@ -409,18 +428,21 @@ enum GeneratedSiteRenderer {
               </div>
             </section>
 
-            <section class="ready-cta" aria-label="Owner review">
+            <section class="visit-cta" aria-label="Plan a visit">
               <div>
-                <p class="section-kicker">Ready for owner review</p>
-                <h2>This website draft is ready to refine.</h2>
-                <p>Built from the SiteClaw conversation with menu, hours, location, and local search basics.</p>
+                <p class="section-kicker">Plan your visit</p>
+                <h2>\(visitHeadline)</h2>
+                <p>\(visitCopy)</p>
               </div>
-              <a class="button" href="#menu">Review Menu</a>
+              <div class="actions">
+                <a class="button" href="#menu">View Menu</a>
+                <a class="button secondary" href="#hours">Hours &amp; Location</a>
+              </div>
             </section>
           </main>
 
           <footer>
-            <p>Generated by SiteClaw for \(restaurantName).</p>
+            <p>\(restaurantName) &middot; \(addressDisplay)</p>
           </footer>
         </body>
         </html>
@@ -560,6 +582,14 @@ enum GeneratedSiteRenderer {
         ]
 
         if let first = weekdayRanges.first, !first.isEmpty, weekdayRanges.allSatisfy({ $0 == first }) {
+            if !hours.sunday.isEmpty, hours.sunday != first {
+                return "Mon-Sat \(formatHours(first)); Sun \(formatHours(hours.sunday))"
+            }
+
+            if !hours.sunday.isEmpty {
+                return "Daily \(formatHours(first))"
+            }
+
             return "Mon-Sat \(formatHours(first))"
         }
 
@@ -608,6 +638,67 @@ enum GeneratedSiteRenderer {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: ", ")
+    }
+
+    private static func customerLocationName(from address: RestaurantJSONAddress) -> String {
+        let city = address.city.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !city.isEmpty {
+            return city
+        }
+
+        let state = address.state.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !state.isEmpty {
+            return state
+        }
+
+        return ""
+    }
+
+    private static func makeMenuLead(from menu: RestaurantJSONMenu) -> String {
+        let items = menu.categories
+            .flatMap(\.items)
+            .map(\.name)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(4)
+
+        guard !items.isEmpty else {
+            return "Featured dishes and prices will be posted here soon."
+        }
+
+        return "Popular picks include \(items.joined(separator: ", "))."
+    }
+
+    private static func makeVisitHeadline(restaurantName: String, locationName: String) -> String {
+        let name = restaurantName.isEmpty ? "the restaurant" : restaurantName
+        let location = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if location.isEmpty {
+            return "Visit \(name)"
+        }
+
+        return "Visit \(name) in \(location)"
+    }
+
+    private static func makeVisitCopy(from data: RestaurantJSON, locationName: String) -> String {
+        let menuNames = data.menu.categories
+            .flatMap(\.items)
+            .map(\.name)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(3)
+        let location = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let story = publicStory(from: data.basics.description)
+
+        if !menuNames.isEmpty, !location.isEmpty {
+            return "Stop by for \(menuNames.joined(separator: ", ")) and a friendly neighborhood meal in \(location)."
+        }
+
+        if !story.isEmpty {
+            return story
+        }
+
+        return "Check the menu, hours, and location before your next visit."
     }
 
     private static func formatPrice(_ price: Double?) -> String {

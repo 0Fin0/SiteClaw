@@ -46,7 +46,7 @@ What makes us special is fresh ingredients, fast service, and a friendly neighbo
 
 Expected menu output: Cheeseburgers $12.99, Chicken Sandwiches $11.49, Fries $4.99, Lemonade $3.49.
 
-Expected proof points: Preview shows Sunset Grill, four menu items, San Jose, and corrected hours. Review & Export shows Owner Review `3/3`, and JSON shows 4 menu items with 6 SEO terms. Open Site shows a real customer-facing local website with Home/Menu/Hours/Location nav, menu cards, hours, location, and a Ready for owner review CTA. After publishing, the Share Site card should show Published Site with a local URL, Copy Site Link, Open Again, and a QR code.
+Expected proof points: Preview shows Sunset Grill, four menu items, San Jose, and corrected hours. Review & Export shows Owner Review `3/3`, and JSON shows 4 menu items with 6 SEO terms. Open Site shows a real customer-facing local website with Home/Menu/Hours/Location nav, menu cards, complete hours, location, and a Plan your visit CTA. After publishing, the Share Site card should show Published Site with a local URL, Copy Site Link, Open Again, and a QR code.
 
 ## How To Start And Test The iOS MVP
 
@@ -106,7 +106,8 @@ If a conversation fails or restarts, continue from here:
 - The golden path is Talk -> Build corrections -> Generate Restaurant Website -> Preview -> Review & Export -> Open Site.
 - Do not spend more time chasing obscure Pho/Vietnamese transcription edge cases unless they break the core demo.
 - Dashboard and JSON are proof tools under Preview > Review & Export, not part of the default walkthrough.
-- Current local work after commit `b6fa0e2` is uncommitted: `GeneratedSiteRenderer.swift` now outputs a more publishable customer-facing static site, `SitePreviewView.swift` adds Published Site success with Copy Site Link/Open Again/QR code, `Backend/server.mjs` adds a local generated-sites registry, and `SiteClawCoreTests.swift` adds regression checks for public website nav and removal of internal placeholder copy.
+- Commit `a543500` is pushed to `origin/main` and contains the publish proof: customer-facing static site export, Published Site success with Copy Site Link/Open Again/QR code, backend local generated-sites registry, docs, and regression tests.
+- Current local work after commit `a543500` polishes the public generated website further: tighter mobile spacing, customer-facing Plan your visit CTA, full Mon-Sat/Sunday hours summary, menu intro copy, and no public draft-review language.
 - Latest verification passed after the publish success and backend registry work: `xcodebuild test -project SiteClaw.xcodeproj -scheme SiteClaw -destination 'platform=macOS'`, `xcodebuild -project SiteClaw.xcodeproj -scheme 'SiteClaw iOS' -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`, `/Applications/Codex.app/Contents/Resources/node --check Backend/server.mjs`, `git diff --check`, and a temporary-port smoke test for `/health`, `/api/sites`, and `/api/sites/sunset-grill`.
 - Next best polish target is a final visual QA pass of Talk -> Build -> Preview -> Review & Export -> Open Site after this work is committed and pushed.
 - Do not prioritize full Supabase/OAuth/Stripe before the website creation story feels undeniably publishable. Auth/account/billing is useful later, but it is less memorable for judging than Talk -> real website.
@@ -211,7 +212,7 @@ xcodebuild build -project SiteClaw.xcodeproj -scheme 'SiteClaw iOS' -destination
 - Preview now keeps the customer-facing generated site on the main path and moves Owner Review, HTML export, Proof Tools, and Search Preview behind Review & Export.
 - Proof screens have extra bottom clearance for the iOS tab bar, and duplicate dashboard activity entries are coalesced.
 - Backend local publish endpoint writes generated `index.html` and `restaurant.json` under `Backend/generated-sites/{slug}/` and serves the site at `http://localhost:8787/sites/{slug}/`. The app's Review & Export card exposes this as Open Site.
-- Generated static sites now use a more public-facing restaurant template: Home/Menu/Hours/Location nav, smooth anchor links, menu cards, hours/location sections, hidden phone card when no phone exists, no `Phone not provided yet`, no `owner-provided` wording, no internal menu-detail notes, and a Ready for owner review CTA.
+- Generated static sites now use a more public-facing restaurant template: Home/Menu/Hours/Location nav, smooth anchor links, menu cards, hours/location sections, hidden phone card when no phone exists, no `Phone not provided yet`, no `owner-provided` wording, no internal menu-detail notes, and a customer-facing Plan your visit CTA.
 - The latest tested Safari result for Sunset Grill shows the generated site opening successfully from the app, with the polished nav and customer-facing menu/hours/location content.
 - Review & Export now gives the app a post-publish proof state: Published Site, local URL, Copy Site Link, Open Again, and a scannable QR code.
 - Backend now exposes `GET /api/sites` and `GET /api/sites/{slug}` to list and inspect locally generated site folders before the Supabase storage lane is prioritized.

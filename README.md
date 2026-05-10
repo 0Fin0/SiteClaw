@@ -22,7 +22,7 @@ The strongest current MVP proof is:
 Talk -> Build -> Preview -> Review & Export -> Open Site
 ```
 
-Open Site publishes the generated HTML to the local backend and opens the real restaurant website in Safari. After publishing, the app shows a Published Site success state with the local URL, Copy Site Link, Open Again, and a QR code for presentation. The current generated site template includes customer-facing Home/Menu/Hours/Location navigation, menu cards, hours, location, and a Ready for owner review CTA. Internal proof wording such as missing phone placeholders and owner-only menu notes is intentionally hidden from the public site.
+Open Site publishes the generated HTML to the local backend and opens the real restaurant website in Safari. After publishing, the app shows a Published Site success state with the local URL, Copy Site Link, Open Again, and a QR code for presentation. The current generated site template includes customer-facing Home/Menu/Hours/Location navigation, tighter menu cards, full week hours, location, and a Plan your visit CTA. Internal proof wording such as missing phone placeholders, owner-only menu notes, and draft-review copy is intentionally hidden from the public site.
 
 ## Tech Direction
 
@@ -144,6 +144,7 @@ These registry endpoints read from `Backend/generated-sites/` and are the curren
 - Use Review & Export -> Open Site when you want to prove SiteClaw produced a real local website from the generated HTML and `restaurant.json`
 - Show the Published Site success state after Open Site: local URL, Copy Site Link, Open Again, and QR code
 - Use `GET /api/sites` and `GET /api/sites/sunset-grill` if judges ask where the generated website is persisted before Supabase
+- Keep owner-review language inside the app; the public generated website should stay customer-facing
 - Park the minor first-start audio transcription stall as a known follow-up unless it becomes repeatable during rehearsal
 - Keep Supabase/OAuth/Stripe behind the website creation story unless the core publish flow is already presentation-ready
 - Later: replace the single-file static export with the full Astro renderer and add Cloudflare Pages publishing
