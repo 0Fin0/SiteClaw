@@ -14,7 +14,7 @@ Last updated checkpoint: May 9, 2026.
 - The iOS tab bar now uses three judge-facing tabs: Talk, Build, Preview.
 - `TalkToSiteClawView` captures voice onboarding through five guided questions.
 - `BuilderView` is the correction surface. Users should fix captured basics, menu items, and contact details here before generating or refreshing the draft.
-- `SitePreviewView` shows the generated restaurant site first, then a compact Review & Export link for owner review, static HTML export controls, and proof tools.
+- `SitePreviewView` shows the generated restaurant site first, then a compact Review & Export link for owner review, local website publishing, static HTML export controls, and proof tools.
 - `DashboardView` is no longer a top-level tab; it is reachable from Preview > Review & Export > Proof Tools for launch readiness, MVP checklist, recent activity, and publish status.
 - `RestaurantJSONView` is no longer a top-level tab; it is reachable from Preview > Review & Export > Proof Tools and shows/copies the generated `restaurant.json`.
 - `QuickUpdatesView` exists but should not be promoted to a sixth iOS tab unless the navigation is redesigned.
@@ -31,7 +31,7 @@ Use this order for demos and testing:
 6. In Build, correct any transcription errors.
 7. Tap Generate Restaurant Website to refresh the final Preview and JSON.
 8. Review Preview.
-9. Open Preview > Review & Export only if judges ask to see launch readiness, generated JSON, or HTML export.
+9. Open Preview > Review & Export only if judges ask to see launch readiness, generated JSON, HTML export, or the real local website output.
 
 Use Sunset Grill as the reliable demo restaurant:
 
@@ -205,3 +205,4 @@ xcodebuild build -project SiteClaw.xcodeproj -scheme 'SiteClaw iOS' -destination
 - Preview Owner Review now treats missing street address and phone as optional details instead of implying the city is a street address.
 - Preview now keeps the customer-facing generated site on the main path and moves Owner Review, HTML export, Proof Tools, and Search Preview behind Review & Export.
 - Proof screens have extra bottom clearance for the iOS tab bar, and duplicate dashboard activity entries are coalesced.
+- Backend local publish endpoint writes generated `index.html` and `restaurant.json` under `Backend/generated-sites/{slug}/` and serves the site at `http://localhost:8787/sites/{slug}/`. The app's Review & Export card exposes this as Open Site.

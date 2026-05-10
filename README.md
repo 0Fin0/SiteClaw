@@ -2,7 +2,7 @@
 
 SiteClaw is a SwiftUI prototype for an AI-powered website builder for local restaurants.
 
-The product concept comes from the ISYS 556 SiteClaw project: restaurant owners can describe their business by voice or text, then SiteClaw generates a professional restaurant website with menu, hours, local SEO, preview, JSON, and export controls.
+The product concept comes from the ISYS 556 SiteClaw project: restaurant owners can describe their business by voice or text, then SiteClaw generates a professional restaurant website with menu, hours, local SEO, preview, JSON, and local publishing/export controls.
 
 ## Current Prototype
 
@@ -10,7 +10,7 @@ This version is a SwiftUI app with Mac and iOS targets. The current judge-facing
 
 - Talk: voice-onboarding prototype for capturing the owner conversation
 - Build: correction and generation surface for the captured restaurant details
-- Preview: generated restaurant website mockup with a compact Review & Export path for owner checklist, static `index.html` export, and proof tools
+- Preview: generated restaurant website mockup with a compact Review & Export path for owner checklist, local website publishing, static `index.html` export, and proof tools
 
 Dashboard and generated `restaurant.json` are still available from Preview under Review & Export > Proof Tools, but they no longer compete with the live demo flow as top-level tabs.
 
@@ -106,10 +106,20 @@ curl -X POST http://localhost:8787/api/generate/draft \
 
 The app's Generate Website Draft button calls this endpoint first, then falls back to the local demo generator if the backend is unavailable.
 
+Publish the generated site locally:
+
+```bash
+curl -X POST http://localhost:8787/api/publish/local \
+  -H "Content-Type: application/json" \
+  -d '{"slug":"sunset-grill","html":"<!doctype html><html><body><h1>Sunset Grill</h1></body></html>","restaurant_json":{"basics":{"name":"Sunset Grill"}}}'
+```
+
+The app's Review & Export screen uses this endpoint from the Open Site button. It writes `Backend/generated-sites/{slug}/index.html` and `restaurant.json`, then serves the real generated page at `http://localhost:8787/sites/{slug}/`.
+
 ## Next Steps
 
 - Rehearse the Talk -> Build -> Preview flow on an iPhone Simulator with the Sunset Grill script
-- Keep Review & Export as a one-tap proof path while the main Preview stays customer-facing
+- Use Review & Export -> Open Site when you want to prove SiteClaw produced a real local website from the generated HTML and `restaurant.json`
 - Park the minor first-start audio transcription stall as a known follow-up unless it becomes repeatable during rehearsal
 - Replace the single-file static export with the full Astro renderer
 - Add Cloudflare Pages publishing

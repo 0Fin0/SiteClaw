@@ -1,5 +1,6 @@
 import http from "node:http";
-import { readFileSync, existsSync } from "node:fs";
+import { createReadStream, readFileSync, existsSync } from "node:fs";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,6 +9,7 @@ loadEnv(join(__dirname, ".env"));
 
 const port = numberFromEnv("PORT", 8787);
 const allowedOrigin = process.env.SITECLAW_ALLOWED_ORIGIN || "*";
+const generatedSitesDir = join(__dirname, "generated-sites");
 
 const server = http.createServer(async (req, res) => {
     setCorsHeaders(res);
@@ -28,7 +30,13 @@ const server = http.createServer(async (req, res) => {
                 realtime_model: realtimeModel(),
                 realtime_transcription_model: realtimeTranscriptionModel(),
                 generation_model: generationModel(),
+                local_publish: true,
             });
+            return;
+        }
+
+        if (req.method === "GET" && url.pathname.startsWith("/sites/")) {
+            await serveGeneratedSite(url, res);
             return;
         }
 
@@ -42,6 +50,13 @@ const server = http.createServer(async (req, res) => {
         if (req.method === "POST" && isDraftGenerationPath(url.pathname)) {
             const body = await readJSON(req);
             const payload = await generateWebsiteDraft(body);
+            sendJSON(res, 200, payload);
+            return;
+        }
+
+        if (req.method === "POST" && isLocalPublishPath(url.pathname)) {
+            const body = await readJSON(req);
+            const payload = await publishLocalSite(body);
             sendJSON(res, 200, payload);
             return;
         }
@@ -228,6 +243,72 @@ async function generateWebsiteDraft(body) {
     };
 }
 
+async function publishLocalSite(body) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw publicError(400, "Request body must be a JSON object.");
+    }
+
+    const html = stringWithLimit(body.html, 2_000_000).trim();
+    if (!html || !html.toLowerCase().includes("<html")) {
+        throw publicError(400, "Request body must include generated HTML.");
+    }
+
+    const restaurantJSON = body.restaurant_json ?? body.restaurantJSON;
+    if (!restaurantJSON || typeof restaurantJSON !== "object" || Array.isArray(restaurantJSON)) {
+        throw publicError(400, "Request body must include restaurant_json.");
+    }
+
+    const requestedSlug = sanitizeText(body.slug) || restaurantJSON?.basics?.name || "restaurant-site";
+    const slug = slugify(requestedSlug);
+    const siteDir = join(generatedSitesDir, slug);
+    const htmlPath = join(siteDir, "index.html");
+    const jsonPath = join(siteDir, "restaurant.json");
+    const jsonText = `${JSON.stringify(restaurantJSON, null, 2)}\n`;
+
+    await mkdir(siteDir, { recursive: true });
+    await writeFile(htmlPath, html, "utf8");
+    await writeFile(jsonPath, jsonText, "utf8");
+
+    return {
+        ok: true,
+        slug,
+        url: `http://localhost:${port}/sites/${slug}/`,
+        html_path: htmlPath,
+        json_path: jsonPath,
+        byte_count: Buffer.byteLength(html, "utf8") + Buffer.byteLength(jsonText, "utf8"),
+    };
+}
+
+async function serveGeneratedSite(url, res) {
+    const parts = url.pathname.split("/").filter(Boolean);
+    const slug = slugify(parts[1] ?? "");
+    const filename = parts[2] === "restaurant.json" ? "restaurant.json" : "index.html";
+    const contentType = filename === "restaurant.json"
+        ? "application/json; charset=utf-8"
+        : "text/html; charset=utf-8";
+
+    if (!slug) {
+        sendJSON(res, 404, { error: "Generated site not found." });
+        return;
+    }
+
+    await sendFile(res, join(generatedSitesDir, slug, filename), contentType);
+}
+
+async function sendFile(res, path, contentType) {
+    try {
+        const fileStat = await stat(path);
+        res.writeHead(200, {
+            "Content-Type": contentType,
+            "Content-Length": fileStat.size,
+            "Cache-Control": "no-store",
+        });
+        createReadStream(path).pipe(res);
+    } catch {
+        sendJSON(res, 404, { error: "Generated site not found." });
+    }
+}
+
 function siteClawInstructions(restaurantName) {
     return [
         "You are SiteClaw, a friendly voice onboarding assistant for local restaurant owners.",
@@ -246,6 +327,10 @@ function isRealtimeSessionPath(pathname) {
 
 function isDraftGenerationPath(pathname) {
     return pathname === "/api/generate/draft" || pathname === "/api/ai/draft";
+}
+
+function isLocalPublishPath(pathname) {
+    return pathname === "/api/publish/local" || pathname === "/api/site/local-publish";
 }
 
 function draftGenerationSchema() {
@@ -373,6 +458,20 @@ function sanitizeText(value) {
 
 function sanitizeTextWithLimit(value, maxLength) {
     return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function stringWithLimit(value, maxLength) {
+    return typeof value === "string" ? value.slice(0, maxLength) : "";
+}
+
+function slugify(value) {
+    const slug = String(value ?? "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 80);
+
+    return slug || "restaurant-site";
 }
 
 function realtimeModel() {

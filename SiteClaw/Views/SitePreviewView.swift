@@ -191,6 +191,7 @@ private struct StaticSiteExportCard: View {
     @State private var exportDocument = SiteExportDocument()
     @State private var isExportingHTML = false
     @State private var didCopyHTML = false
+    @State private var isPublishingLocalSite = false
     @State private var exportMessage: String?
 
     var body: some View {
@@ -224,18 +225,27 @@ private struct StaticSiteExportCard: View {
                     .buttonStyle(.bordered)
 
                     Button {
-                        saveHTML()
+                        publishLocalSite()
                     } label: {
-                        Label("Save HTML", systemImage: "square.and.arrow.down")
+                        Label(isPublishingLocalSite ? "Publishing" : "Open Site", systemImage: "safari")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(SiteClawTheme.coral)
+                    .tint(SiteClawTheme.mint)
+                    .disabled(isPublishingLocalSite)
 
                     Button {
                         copyHTML()
                     } label: {
                         Label(didCopyHTML ? "Copied" : "Copy HTML", systemImage: didCopyHTML ? "checkmark" : "doc.on.doc")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        saveHTML()
+                    } label: {
+                        Label("Save HTML", systemImage: "square.and.arrow.down")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
@@ -291,6 +301,41 @@ private struct StaticSiteExportCard: View {
 
         didCopyHTML = true
         exportMessage = "HTML copied."
+    }
+
+    private func publishLocalSite() {
+        isPublishingLocalSite = true
+
+        Task { @MainActor in
+            defer { isPublishingLocalSite = false }
+
+            studio.prepareSiteExport()
+            let export = studio.siteExport
+            let request = LocalSitePublishRequest(
+                slug: export.slug,
+                html: export.html,
+                restaurantJSON: studio.restaurantJSON
+            )
+
+            do {
+                let response = try await LocalSitePublishService().publish(request: request)
+                exportMessage = "Local site published at \(response.url)"
+
+                if let url = URL(string: response.url) {
+                    openExternalURL(url)
+                }
+            } catch {
+                exportMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func openExternalURL(_ url: URL) {
+        #if os(iOS)
+        UIApplication.shared.open(url)
+        #elseif os(macOS)
+        NSWorkspace.shared.open(url)
+        #endif
     }
 }
 

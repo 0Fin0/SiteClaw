@@ -21,6 +21,7 @@ Package.resolved
 *.dSYM
 *.xcarchive
 incoming/
+Backend/generated-sites/
 
 # Secrets
 .env
