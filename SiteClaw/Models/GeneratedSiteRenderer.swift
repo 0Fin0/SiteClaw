@@ -34,24 +34,30 @@ enum GeneratedSiteRenderer {
 
     private static func makeHTML(from data: RestaurantJSON, draft: WebsiteDraft, slug: String) -> String {
         let title = escape(data.seo.title.isEmpty ? data.basics.name : data.seo.title)
-        let description = escape(data.seo.description.isEmpty ? data.basics.description : data.seo.description)
+        let publicDescription = publicStory(from: data.seo.description.isEmpty ? data.basics.description : data.seo.description)
+        let description = escape(publicDescription)
         let restaurantName = escape(data.basics.name)
         let tagline = escape(data.basics.tagline.isEmpty ? draft.headline : data.basics.tagline)
-        let story = escape(data.basics.description)
+        let story = escape(publicStory(from: data.basics.description))
         let cuisine = escape(data.basics.cuisineType.joined(separator: " / "))
         let address = data.contact.address
         let addressLine = fullAddressLine(from: address)
-        let addressDisplay = escape(addressLine.isEmpty ? "Location not provided yet" : addressLine)
+        let addressDisplay = escape(addressLine.isEmpty ? "Location coming soon" : addressLine)
         let phone = data.contact.phone.trimmingCharacters(in: .whitespacesAndNewlines)
         let phoneActionHTML = phone.isEmpty
             ? ""
             : #"<a class="button secondary" href="tel:\#(escape(phone))">Call \#(escape(phone))</a>"#
         let phoneCardHTML = phone.isEmpty
-            ? "<p>Phone not provided yet</p>"
-            : #"<p><a href="tel:\#(escape(phone))">\#(escape(phone))</a></p>"#
+            ? ""
+            : """
+              <div class="info-card">
+                <h3>Phone</h3>
+                <p><a href="tel:\(escape(phone))">\(escape(phone))</a></p>
+              </div>
+            """
         let menuHTML = makeMenuHTML(from: data.menu)
         let menuCount = data.menu.categories.flatMap(\.items).count
-        let menuSummary = menuCount == 0 ? "Menu details coming soon" : "\(menuCount) owner-provided menu highlights"
+        let menuSummary = menuCount == 0 ? "Menu details coming soon" : "\(menuCount) featured menu items"
         let hoursHTML = makeHoursHTML(from: data.hours)
         let hoursSummary = escape(makeHoursSummary(from: data.hours))
         let keywords = escape(data.seo.keywords.joined(separator: ", "))
@@ -82,6 +88,7 @@ enum GeneratedSiteRenderer {
             }
 
             * { box-sizing: border-box; }
+            html { scroll-behavior: smooth; }
             body {
               margin: 0;
               font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -89,7 +96,10 @@ enum GeneratedSiteRenderer {
               background: var(--paper);
               line-height: 1.5;
             }
-            a { color: inherit; }
+            a {
+              color: inherit;
+              text-decoration: none;
+            }
             header {
               min-height: 64vh;
               display: grid;
@@ -105,15 +115,20 @@ enum GeneratedSiteRenderer {
               display: flex;
               justify-content: space-between;
               align-items: center;
+              gap: 18px;
               padding: 22px clamp(20px, 5vw, 72px);
               font-weight: 800;
               letter-spacing: 0;
             }
+            nav .brand { font-size: 1.02rem; }
             nav .links {
               display: flex;
+              flex-wrap: wrap;
               gap: 18px;
               font-size: 0.92rem;
             }
+            nav .links a { color: rgba(255, 255, 255, 0.86); }
+            nav .links a:hover { color: white; }
             .hero {
               width: min(1120px, calc(100% - 40px));
               margin: 0 auto;
@@ -126,6 +141,13 @@ enum GeneratedSiteRenderer {
               font-weight: 800;
               letter-spacing: 0.12em;
               color: rgba(255, 255, 255, 0.78);
+            }
+            .section-kicker {
+              margin: 0 0 8px;
+              color: var(--accent);
+              font-size: 0.78rem;
+              font-weight: 900;
+              text-transform: uppercase;
             }
             h1 {
               max-width: 820px;
@@ -233,23 +255,6 @@ enum GeneratedSiteRenderer {
             .menu-item h3 { margin: 0 0 4px; font-size: 1.08rem; }
             .menu-item p { margin: 0; color: var(--muted); }
             .price { font-weight: 900; color: var(--accent); }
-            .detail-badge {
-              display: inline-flex;
-              align-items: center;
-              min-height: 30px;
-              padding: 0 10px;
-              border-radius: 8px;
-              background: rgba(248, 201, 90, 0.18);
-              color: #7A4B00;
-              font-weight: 900;
-              white-space: nowrap;
-            }
-            .missing-copy { color: #7A4B00 !important; }
-            .item-note {
-              padding-top: 12px;
-              border-top: 1px solid var(--line);
-              font-size: 0.85rem;
-            }
             .info-grid {
               display: grid;
               grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -263,6 +268,7 @@ enum GeneratedSiteRenderer {
             }
             .info-card h3 { margin: 0 0 8px; }
             .info-card p { margin: 0; color: var(--muted); }
+            .info-card a { color: var(--primary); font-weight: 800; }
             .hours-list {
               display: grid;
               gap: 8px;
@@ -277,16 +283,54 @@ enum GeneratedSiteRenderer {
               padding-bottom: 8px;
               border-bottom: 1px solid var(--line);
             }
+            .ready-cta {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 24px;
+              margin: 58px 0 0;
+              padding: clamp(24px, 5vw, 42px);
+              border: 1px solid var(--line);
+              border-radius: 8px;
+              background: var(--primary);
+              color: white;
+            }
+            .ready-cta h2 {
+              max-width: 720px;
+              margin-bottom: 10px;
+            }
+            .ready-cta p { margin: 0; color: rgba(255, 255, 255, 0.78); }
             footer {
               padding: 34px 20px;
               text-align: center;
               color: var(--muted);
             }
             @media (max-width: 760px) {
-              nav .links { display: none; }
-              header { min-height: 72vh; }
+              nav {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 12px;
+              }
+              nav .links {
+                gap: 8px;
+                font-size: 0.84rem;
+              }
+              nav .links a {
+                min-height: 32px;
+                display: inline-flex;
+                align-items: center;
+                padding: 0 10px;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.14);
+              }
+              header { min-height: 76vh; }
+              .hero { padding-top: 154px; }
               .split, .info-grid, .menu-grid, .fact-strip { grid-template-columns: 1fr; }
               .fact-strip { margin-top: -22px; }
+              .ready-cta {
+                align-items: stretch;
+                flex-direction: column;
+              }
             }
           </style>
           <script type="application/ld+json">
@@ -294,13 +338,14 @@ enum GeneratedSiteRenderer {
           </script>
         </head>
         <body>
-          <header>
+          <header id="home">
             <nav>
-              <div>\(restaurantName)</div>
+              <a class="brand" href="#home">\(restaurantName)</a>
               <div class="links">
+                <a href="#home">Home</a>
                 <a href="#menu">Menu</a>
                 <a href="#hours">Hours</a>
-                <a href="#visit">Visit</a>
+                <a href="#location">Location</a>
               </div>
             </nav>
             <div class="hero">
@@ -340,7 +385,7 @@ enum GeneratedSiteRenderer {
             <section id="menu" class="split">
               <div>
                 <h2>Featured Menu</h2>
-                <p class="lead">Selected dishes from the restaurant profile captured in SiteClaw.</p>
+                <p class="lead">Popular dishes from the featured menu.</p>
               </div>
               <div class="menu-grid">
                 \(menuHTML)
@@ -350,14 +395,11 @@ enum GeneratedSiteRenderer {
             <section id="visit">
               <h2>Visit Us</h2>
               <div class="info-grid">
-                <div class="info-card">
+                <div class="info-card" id="location">
                   <h3>Address</h3>
                   <p>\(addressDisplay)</p>
                 </div>
-                <div class="info-card">
-                  <h3>Phone</h3>
-                  \(phoneCardHTML)
-                </div>
+                \(phoneCardHTML)
                 <div class="info-card" id="hours">
                   <h3>Hours</h3>
                   <ul class="hours-list">
@@ -365,6 +407,15 @@ enum GeneratedSiteRenderer {
                   </ul>
                 </div>
               </div>
+            </section>
+
+            <section class="ready-cta" aria-label="Owner review">
+              <div>
+                <p class="section-kicker">Ready for owner review</p>
+                <h2>This website draft is ready to refine.</h2>
+                <p>Built from the SiteClaw conversation with menu, hours, location, and local search basics.</p>
+              </div>
+              <a class="button" href="#menu">Review Menu</a>
             </section>
           </main>
 
@@ -397,13 +448,10 @@ enum GeneratedSiteRenderer {
             let hasPrice = (item.price ?? 0) > 0
             let descriptionHTML = hasDescription
                 ? "<p>\(escape(description))</p>"
-                : #"<p class="missing-copy">Description not captured yet.</p>"#
+                : ""
             let priceHTML = hasPrice
                 ? #"<strong class="price">\#(formatPrice(item.price))</strong>"#
-                : #"<span class="detail-badge">Price not listed</span>"#
-            let note = hasDescription && hasPrice
-                ? "Owner-approved menu detail."
-                : "Draft detail needed before publishing."
+                : ""
 
             return """
             <div class="menu-item">
@@ -412,7 +460,6 @@ enum GeneratedSiteRenderer {
                 \(priceHTML)
               </div>
               \(descriptionHTML)
-              <p class="item-note">\(note)</p>
             </div>
             """
         }
@@ -446,7 +493,7 @@ enum GeneratedSiteRenderer {
             "@context": "https://schema.org",
             "@type": "Restaurant",
             "name": data.basics.name,
-            "description": data.basics.description,
+            "description": publicStory(from: data.basics.description),
             "servesCuisine": data.basics.cuisineType,
             "url": "https://\(slug).siteclaw.app",
         ]
@@ -584,6 +631,26 @@ enum GeneratedSiteRenderer {
     private static func sanitizeHexColor(_ value: String, fallback: String) -> String {
         let pattern = /^#[0-9a-fA-F]{6}$/
         return value.wholeMatch(of: pattern) == nil ? fallback : value
+    }
+
+    private static func publicStory(from value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefixes = ["It's ", "Its ", "It is "]
+
+        for prefix in prefixes where trimmed.range(of: prefix, options: [.caseInsensitive, .anchored]) != nil {
+            let remainder = trimmed.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            return sentenceCased(String(remainder))
+        }
+
+        return trimmed
+    }
+
+    private static func sentenceCased(_ value: String) -> String {
+        guard let first = value.first else {
+            return value
+        }
+
+        return first.uppercased() + value.dropFirst()
     }
 
     private static func escape(_ value: String) -> String {

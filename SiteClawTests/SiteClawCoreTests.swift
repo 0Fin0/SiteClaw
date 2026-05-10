@@ -461,6 +461,26 @@ final class SiteClawCoreTests: XCTestCase {
         XCTAssertTrue(export.html.contains("<title>Sunset Grill | American restaurant in San Jose</title>"))
         XCTAssertTrue(export.html.contains("Cheeseburgers"))
         XCTAssertTrue(export.html.contains("$12.99"))
+        XCTAssertTrue(export.html.contains(##"<a href="#home">Home</a>"##))
+        XCTAssertTrue(export.html.contains(##"<a href="#menu">Menu</a>"##))
+        XCTAssertTrue(export.html.contains(##"<a href="#hours">Hours</a>"##))
+        XCTAssertTrue(export.html.contains(##"<a href="#location">Location</a>"##))
+        XCTAssertTrue(export.html.contains("Ready for owner review"))
         XCTAssertTrue(export.html.contains("application/ld+json"))
+        XCTAssertFalse(export.html.contains("Phone not provided yet"))
+        XCTAssertFalse(export.html.contains("owner-provided"))
+        XCTAssertFalse(export.html.contains("Owner-approved menu detail."))
+        XCTAssertFalse(export.html.contains("Draft detail needed before publishing."))
+    }
+
+    func testGeneratedSiteExportCleansAwkwardStoryLeadIn() {
+        var json = RestaurantJSONExporter.makeRestaurantJSON(from: .sample, draft: .sample)
+        json.basics.description = "Its fresh ingredients, fast service, and friendly neighborhood atmosphere"
+        json.seo.description = "Its fresh ingredients, fast service, and friendly neighborhood atmosphere"
+
+        let export = GeneratedSiteRenderer.makeExport(from: json, draft: .sample)
+
+        XCTAssertTrue(export.html.contains("Fresh ingredients, fast service, and friendly neighborhood atmosphere"))
+        XCTAssertFalse(export.html.contains("Its fresh ingredients"))
     }
 }

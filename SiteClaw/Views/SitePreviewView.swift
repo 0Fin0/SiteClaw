@@ -4,6 +4,8 @@
 //
 
 import SwiftUI
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import UniformTypeIdentifiers
 
 #if os(iOS)
@@ -191,8 +193,11 @@ private struct StaticSiteExportCard: View {
     @State private var exportDocument = SiteExportDocument()
     @State private var isExportingHTML = false
     @State private var didCopyHTML = false
+    @State private var didCopySiteURL = false
     @State private var isPublishingLocalSite = false
     @State private var exportMessage: String?
+    @State private var exportMessageIsError = false
+    @State private var publishedSite: LocalSitePublishResponse?
 
     var body: some View {
         ClawCard {
@@ -217,7 +222,10 @@ private struct StaticSiteExportCard: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     Button {
                         studio.prepareSiteExport()
-                        exportMessage = "Site export is ready."
+                        publishedSite = nil
+                        didCopySiteURL = false
+                        exportMessage = "Site export refreshed. Open Site to publish the latest version."
+                        exportMessageIsError = false
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                             .frame(maxWidth: .infinity)
@@ -251,10 +259,24 @@ private struct StaticSiteExportCard: View {
                     .buttonStyle(.bordered)
                 }
 
+                if let publishedSite {
+                    PublishedSiteSuccessCard(
+                        response: publishedSite,
+                        didCopySiteURL: didCopySiteURL,
+                        copyAction: copyPublishedSiteURL,
+                        openAction: {
+                            if let url = URL(string: publishedSite.url) {
+                                openExternalURL(url)
+                            }
+                        }
+                    )
+                }
+
                 if let exportMessage {
                     Text(exportMessage)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(SiteClawTheme.mint)
+                        .foregroundStyle(exportMessageIsError ? SiteClawTheme.coral : SiteClawTheme.mint)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -267,8 +289,10 @@ private struct StaticSiteExportCard: View {
             switch result {
             case .success:
                 exportMessage = "HTML file saved."
+                exportMessageIsError = false
             case .failure(let error):
                 exportMessage = error.localizedDescription
+                exportMessageIsError = true
             }
         }
     }
@@ -301,6 +325,7 @@ private struct StaticSiteExportCard: View {
 
         didCopyHTML = true
         exportMessage = "HTML copied."
+        exportMessageIsError = false
     }
 
     private func publishLocalSite() {
@@ -319,15 +344,37 @@ private struct StaticSiteExportCard: View {
 
             do {
                 let response = try await LocalSitePublishService().publish(request: request)
-                exportMessage = "Local site published at \(response.url)"
+                publishedSite = response
+                didCopySiteURL = false
+                exportMessage = "Published site is ready."
+                exportMessageIsError = false
 
                 if let url = URL(string: response.url) {
                     openExternalURL(url)
                 }
             } catch {
                 exportMessage = error.localizedDescription
+                exportMessageIsError = true
             }
         }
+    }
+
+    private func copyPublishedSiteURL() {
+        guard let publishedSite else { return }
+
+        copyToPasteboard(publishedSite.url)
+        didCopySiteURL = true
+        exportMessage = "Site link copied."
+        exportMessageIsError = false
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        #if os(iOS)
+        UIPasteboard.general.string = text
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
     }
 
     private func openExternalURL(_ url: URL) {
@@ -336,6 +383,113 @@ private struct StaticSiteExportCard: View {
         #elseif os(macOS)
         NSWorkspace.shared.open(url)
         #endif
+    }
+}
+
+private struct PublishedSiteSuccessCard: View {
+    let response: LocalSitePublishResponse
+    let didCopySiteURL: Bool
+    let copyAction: () -> Void
+    let openAction: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.title2)
+                    .foregroundStyle(SiteClawTheme.mint)
+                    .frame(width: 40, height: 40)
+                    .background(SiteClawTheme.mint.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Published Site")
+                        .font(.headline)
+                    Text("Ready to open, copy, or scan during the demo.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+            }
+
+            Text(response.url)
+                .font(.caption.monospaced())
+                .foregroundStyle(SiteClawTheme.sky)
+                .lineLimit(2)
+                .textSelection(.enabled)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(SiteClawTheme.sky.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            HStack(alignment: .center, spacing: 14) {
+                SiteQRCodeView(text: response.url)
+                    .frame(width: 104, height: 104)
+                    .padding(10)
+                    .background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(SiteClawTheme.separator, lineWidth: 1)
+                    }
+
+                VStack(spacing: 10) {
+                    Button(action: copyAction) {
+                        Label(didCopySiteURL ? "Link Copied" : "Copy Site Link", systemImage: didCopySiteURL ? "checkmark" : "link")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(SiteClawTheme.sky)
+
+                    Button(action: openAction) {
+                        Label("Open Again", systemImage: "safari")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+        .padding(14)
+        .background(SiteClawTheme.mint.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(SiteClawTheme.mint.opacity(0.22), lineWidth: 1)
+        }
+    }
+}
+
+private struct SiteQRCodeView: View {
+    let text: String
+
+    private static let context = CIContext()
+
+    var body: some View {
+        if let cgImage = makeQRCodeImage() {
+            Image(decorative: cgImage, scale: 1, orientation: .up)
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+                .accessibilityLabel("QR code for published site")
+        } else {
+            Image(systemName: "qrcode")
+                .font(.system(size: 72, weight: .regular))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func makeQRCodeImage() -> CGImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+
+        guard let outputImage = filter.outputImage else {
+            return nil
+        }
+
+        let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+        return Self.context.createCGImage(scaledImage, from: scaledImage.extent)
     }
 }
 

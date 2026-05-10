@@ -16,6 +16,14 @@ Dashboard and generated `restaurant.json` are still available from Preview under
 
 The AI, voice, and deployment behavior still has demo fallbacks so the project runs immediately in Xcode. The Talk tab can request a short-lived OpenAI Realtime session token from the local backend, stream native microphone audio to OpenAI Realtime over WebSocket, capture live transcript turns, and call the backend to generate structured website draft copy.
 
+The strongest current MVP proof is:
+
+```text
+Talk -> Build -> Preview -> Review & Export -> Open Site
+```
+
+Open Site publishes the generated HTML to the local backend and opens the real restaurant website in Safari. After publishing, the app shows a Published Site success state with the local URL, Copy Site Link, Open Again, and a QR code for presentation. The current generated site template includes customer-facing Home/Menu/Hours/Location navigation, menu cards, hours, location, and a Ready for owner review CTA. Internal proof wording such as missing phone placeholders and owner-only menu notes is intentionally hidden from the public site.
+
 ## Tech Direction
 
 Planned production stack:
@@ -116,10 +124,26 @@ curl -X POST http://localhost:8787/api/publish/local \
 
 The app's Review & Export screen uses this endpoint from the Open Site button. It writes `Backend/generated-sites/{slug}/index.html` and `restaurant.json`, then serves the real generated page at `http://localhost:8787/sites/{slug}/`.
 
+List locally generated sites:
+
+```bash
+curl http://localhost:8787/api/sites
+```
+
+Inspect one locally generated site:
+
+```bash
+curl http://localhost:8787/api/sites/sunset-grill
+```
+
+These registry endpoints read from `Backend/generated-sites/` and are the current backend-lite proof that published pages are persisted by slug before full Supabase storage is added.
+
 ## Next Steps
 
-- Rehearse the Talk -> Build -> Preview flow on an iPhone Simulator with the Sunset Grill script
+- Rehearse the Talk -> Build -> Preview -> Review & Export -> Open Site flow on an iPhone Simulator with the Sunset Grill script
 - Use Review & Export -> Open Site when you want to prove SiteClaw produced a real local website from the generated HTML and `restaurant.json`
+- Show the Published Site success state after Open Site: local URL, Copy Site Link, Open Again, and QR code
+- Use `GET /api/sites` and `GET /api/sites/sunset-grill` if judges ask where the generated website is persisted before Supabase
 - Park the minor first-start audio transcription stall as a known follow-up unless it becomes repeatable during rehearsal
-- Replace the single-file static export with the full Astro renderer
-- Add Cloudflare Pages publishing
+- Keep Supabase/OAuth/Stripe behind the website creation story unless the core publish flow is already presentation-ready
+- Later: replace the single-file static export with the full Astro renderer and add Cloudflare Pages publishing

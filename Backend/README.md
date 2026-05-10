@@ -99,6 +99,20 @@ http://localhost:8787/sites/{slug}/
 
 This is the local MVP bridge toward the Astro/Cloudflare renderer: the Swift app already generates the HTML and `restaurant.json`, and the backend makes them behave like a real published site.
 
+List generated sites:
+
+```bash
+curl http://localhost:8787/api/sites
+```
+
+Inspect one generated site:
+
+```bash
+curl http://localhost:8787/api/sites/sunset-grill
+```
+
+The list and detail endpoints read the generated site folders back as a tiny local registry, which gives the demo a persistence story before Supabase storage is wired in.
+
 ## Notes
 
 - `Backend/.env` is ignored by Git.

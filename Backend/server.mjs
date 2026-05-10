@@ -1,6 +1,6 @@
 import http from "node:http";
 import { createReadStream, readFileSync, existsSync } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,7 +31,20 @@ const server = http.createServer(async (req, res) => {
                 realtime_transcription_model: realtimeTranscriptionModel(),
                 generation_model: generationModel(),
                 local_publish: true,
+                local_site_registry: true,
             });
+            return;
+        }
+
+        if (req.method === "GET" && url.pathname === "/api/sites") {
+            const payload = await listLocalSites();
+            sendJSON(res, 200, payload);
+            return;
+        }
+
+        if (req.method === "GET" && url.pathname.startsWith("/api/sites/")) {
+            const payload = await getLocalSite(url);
+            sendJSON(res, 200, payload);
             return;
         }
 
@@ -277,6 +290,93 @@ async function publishLocalSite(body) {
         json_path: jsonPath,
         byte_count: Buffer.byteLength(html, "utf8") + Buffer.byteLength(jsonText, "utf8"),
     };
+}
+
+async function listLocalSites() {
+    let entries = [];
+    try {
+        entries = await readdir(generatedSitesDir, { withFileTypes: true });
+    } catch {
+        return {
+            ok: true,
+            sites: [],
+        };
+    }
+
+    const sites = [];
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+
+        const summary = await localSiteSummary(entry.name);
+        if (summary) {
+            sites.push(summary);
+        }
+    }
+
+    sites.sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+
+    return {
+        ok: true,
+        sites,
+    };
+}
+
+async function getLocalSite(url) {
+    const parts = url.pathname.split("/").filter(Boolean);
+    const slug = slugify(parts[2] ?? "");
+
+    if (!slug || parts.length !== 3) {
+        throw publicError(404, "Generated site not found.");
+    }
+
+    const summary = await localSiteSummary(slug);
+    if (!summary) {
+        throw publicError(404, "Generated site not found.");
+    }
+
+    const restaurantJSON = await readLocalSiteJSON(slug);
+
+    return {
+        ok: true,
+        site: summary,
+        restaurant_json: restaurantJSON,
+    };
+}
+
+async function localSiteSummary(slug) {
+    const normalizedSlug = slugify(slug);
+    const siteDir = join(generatedSitesDir, normalizedSlug);
+    const htmlPath = join(siteDir, "index.html");
+    const jsonPath = join(siteDir, "restaurant.json");
+
+    try {
+        const [htmlStat, jsonStat, restaurantJSON] = await Promise.all([
+            stat(htmlPath),
+            stat(jsonPath),
+            readLocalSiteJSON(normalizedSlug),
+        ]);
+
+        return {
+            slug: normalizedSlug,
+            restaurant_name: sanitizeText(restaurantJSON?.basics?.name) || normalizedSlug,
+            url: `http://localhost:${port}/sites/${normalizedSlug}/`,
+            json_url: `http://localhost:${port}/sites/${normalizedSlug}/restaurant.json`,
+            html_path: htmlPath,
+            json_path: jsonPath,
+            updated_at: new Date(Math.max(htmlStat.mtimeMs, jsonStat.mtimeMs)).toISOString(),
+            byte_count: htmlStat.size + jsonStat.size,
+        };
+    } catch {
+        return null;
+    }
+}
+
+async function readLocalSiteJSON(slug) {
+    const jsonPath = join(generatedSitesDir, slugify(slug), "restaurant.json");
+    const text = await readFile(jsonPath, "utf8");
+    return JSON.parse(text);
 }
 
 async function serveGeneratedSite(url, res) {
