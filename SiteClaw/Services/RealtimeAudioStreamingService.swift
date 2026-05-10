@@ -102,6 +102,8 @@ final class RealtimeAudioStreamingService {
             restaurantName: restaurantName,
             transcriptionModel: response.transcriptionModel
         )
+
+        try await Task.sleep(nanoseconds: 300_000_000)
         try startAudioEngine(onEvent: onEvent)
 
         do {
@@ -159,7 +161,8 @@ final class RealtimeAudioStreamingService {
                 "instructions": [
                     "You are SiteClaw, a friendly voice onboarding assistant for local restaurant owners.",
                     "You are helping create a website draft for \(restaurantName.isEmpty ? "the restaurant" : restaurantName).",
-                    "Ask one short question at a time, listen for restaurant details, and summarize useful website copy.",
+                    "Do not ask your own onboarding questions; the native app shows the questions.",
+                    "Listen silently and transcribe the restaurant owner's answer to the visible question.",
                     "Capture the restaurant name, cuisine, neighborhood, hours, menu highlights with prices, owner story, phone number if provided, and local SEO phrases.",
                 ].joined(separator: " "),
                 "audio": [
@@ -180,7 +183,7 @@ final class RealtimeAudioStreamingService {
                             "threshold": 0.5,
                             "prefix_padding_ms": 300,
                             "silence_duration_ms": 700,
-                            "create_response": true,
+                            "create_response": false,
                             "interrupt_response": true,
                         ],
                     ],
@@ -190,10 +193,15 @@ final class RealtimeAudioStreamingService {
     }
 
     private func startAudioEngine(onEvent: @escaping (RealtimeAudioStreamingEvent) -> Void) throws {
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        audioEngine.reset()
+
         let inputNode = audioEngine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
 
-        guard inputFormat.channelCount > 0 else {
+        guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
             throw RealtimeAudioStreamingError.unavailableInputFormat
         }
 
@@ -252,8 +260,11 @@ final class RealtimeAudioStreamingService {
     private func configurePlatformAudioSession() throws {
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .defaultToSpeaker])
-        try session.setPreferredSampleRate(24000)
+
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        try session.setCategory(.playAndRecord, mode: .measurement, options: [.allowBluetoothHFP, .defaultToSpeaker])
+        try session.setPreferredSampleRate(48_000)
+        try session.setPreferredIOBufferDuration(0.02)
         try session.setActive(true)
         #endif
     }

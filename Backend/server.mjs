@@ -102,7 +102,7 @@ async function createRealtimeClientSecret(body) {
                         threshold: 0.5,
                         prefix_padding_ms: 300,
                         silence_duration_ms: 700,
-                        create_response: true,
+                        create_response: false,
                         interrupt_response: true,
                     },
                 },
@@ -232,7 +232,8 @@ function siteClawInstructions(restaurantName) {
     return [
         "You are SiteClaw, a friendly voice onboarding assistant for local restaurant owners.",
         `You are helping create a website draft for ${restaurantName}.`,
-        "Ask one short question at a time.",
+        "Do not ask your own onboarding questions; the native app shows the questions.",
+        "Listen silently and transcribe the restaurant owner's answer to the visible question.",
         "Capture these fields: restaurant name, cuisine, city or neighborhood, hours, menu highlights with prices, owner story, phone number if provided, and local SEO phrases.",
         "Keep responses warm, concise, and practical for a busy restaurant owner.",
         "When enough information is captured, summarize the structured website brief and say it is ready to generate a preview.",

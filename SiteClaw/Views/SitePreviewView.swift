@@ -19,24 +19,170 @@ struct SitePreviewView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    SectionHeader(
-                        title: "Live Site Preview",
-                        subtitle: "This is the restaurant website SiteClaw generated from the conversation."
-                    )
+                    PreviewSummaryHeader(studio: studio)
 
-                    RestaurantWebsiteMock(studio: studio)
+                    MobileSitePreview(studio: studio)
 
-                    DraftReadinessCard(studio: studio)
-
-                    StaticSiteExportCard(studio: studio)
-
-                    SEOSection(draft: studio.draft)
+                    ReviewExportEntryCard(studio: studio)
                 }
                 .padding(16)
+                .padding(.bottom, SiteClawTheme.tabBarClearance)
             }
             .background(SiteClawTheme.background.ignoresSafeArea())
-            .navigationTitle("Preview")
+            .navigationTitle("Site Preview")
         }
+    }
+}
+
+private struct ReviewExportEntryCard: View {
+    let studio: SiteClawStudio
+
+    var body: some View {
+        NavigationLink {
+            PreviewReviewExportView(studio: studio)
+        } label: {
+            ClawCard {
+                HStack(alignment: .center, spacing: 12) {
+                    Image(systemName: "shippingbox.fill")
+                        .font(.title3.weight(.semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(SiteClawTheme.sky)
+                        .frame(width: 38, height: 38)
+                        .background(SiteClawTheme.sky.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Review & Export")
+                            .font(.headline)
+                            .foregroundStyle(SiteClawTheme.ink)
+                        Text("Owner checklist, HTML export, launch dashboard, and JSON proof.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Label("\(providedCoreCount)/3", systemImage: "checklist")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(SiteClawTheme.mint)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(SiteClawTheme.mint.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var providedCoreCount: Int {
+        [hasRestaurantName, hasMenuPrices, hasDishDescriptions].filter { $0 }.count
+    }
+
+    private var hasRestaurantName: Bool {
+        !studio.restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hasMenuPrices: Bool {
+        !studio.restaurant.menuItems.isEmpty && studio.restaurant.menuItems.allSatisfy { ($0.price ?? 0) > 0 }
+    }
+
+    private var hasDishDescriptions: Bool {
+        !studio.restaurant.menuItems.isEmpty && studio.restaurant.menuItems.allSatisfy {
+            !$0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+}
+
+private struct PreviewReviewExportView: View {
+    @Bindable var studio: SiteClawStudio
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                DraftReadinessCard(studio: studio)
+
+                StaticSiteExportCard(studio: studio)
+
+                PreviewProofToolsCard(studio: studio)
+
+                SEOSection(draft: studio.draft)
+            }
+            .padding(16)
+            .padding(.bottom, SiteClawTheme.tabBarClearance)
+        }
+        .background(SiteClawTheme.background.ignoresSafeArea())
+        .navigationTitle("Review & Export")
+    }
+}
+
+private struct PreviewSummaryHeader: View {
+    let studio: SiteClawStudio
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Generated Preview", systemImage: "iphone")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(SiteClawTheme.coral)
+
+            Text(studio.restaurant.name.isEmpty ? "Restaurant site preview" : studio.restaurant.name)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(SiteClawTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("A mobile-first customer view built from the owner conversation.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct MobileSitePreview: View {
+    let studio: SiteClawStudio
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "lock.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(previewURL)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(SiteClawTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            RestaurantWebsiteMock(studio: studio)
+        }
+        .padding(10)
+        .frame(maxWidth: 460)
+        .background(SiteClawTheme.elevatedSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(SiteClawTheme.separator, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.10), radius: 24, y: 12)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var previewURL: String {
+        studio.draft.url
+            .replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
     }
 }
 
@@ -52,9 +198,9 @@ private struct StaticSiteExportCard: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Static Site Export")
+                        Text("Share Site")
                             .font(.title2.bold())
-                        Text(studio.siteExportDetail)
+                        Text(exportDetail)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -67,18 +213,12 @@ private struct StaticSiteExportCard: View {
                         .foregroundStyle(SiteClawTheme.coral)
                 }
 
-                HStack {
-                    ExportMetric(title: "File", value: "index.html")
-                    ExportMetric(title: "Slug", value: studio.siteExport.slug)
-                    ExportMetric(title: "Size", value: studio.siteExport.sizeLabel)
-                }
-
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     Button {
                         studio.prepareSiteExport()
-                        exportMessage = "Static site export prepared."
+                        exportMessage = "Site export is ready."
                     } label: {
-                        Label("Prepare", systemImage: "hammer.fill")
+                        Label("Refresh", systemImage: "arrow.clockwise")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
@@ -123,16 +263,24 @@ private struct StaticSiteExportCard: View {
         }
     }
 
+    private var exportDetail: String {
+        if studio.lastSiteExportedAt == nil {
+            return "Save or copy the generated page when the owner-approved preview is ready."
+        }
+
+        return studio.siteExportDetail
+    }
+
     private func saveHTML() {
-        let export = studio.siteExport
         studio.prepareSiteExport()
+        let export = studio.siteExport
         exportDocument = SiteExportDocument(text: export.html)
         isExportingHTML = true
     }
 
     private func copyHTML() {
-        let html = studio.siteExport.html
         studio.prepareSiteExport()
+        let html = studio.siteExport.html
 
         #if os(iOS)
         UIPasteboard.general.string = html
@@ -143,25 +291,6 @@ private struct StaticSiteExportCard: View {
 
         didCopyHTML = true
         exportMessage = "HTML copied."
-    }
-}
-
-private struct ExportMetric: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(.headline)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .foregroundStyle(SiteClawTheme.ink)
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -231,10 +360,14 @@ private struct WebsiteHero: View {
                         }
                     }
 
-                    Text(studio.draft.headline)
+                    Text(displayName)
                         .font(.largeTitle.bold())
                         .foregroundStyle(.white)
                         .frame(maxWidth: 780, alignment: .leading)
+                    Text(studio.draft.headline)
+                        .font(.headline)
+                        .foregroundStyle(.white.opacity(0.92))
+                        .frame(maxWidth: 680, alignment: .leading)
                     Text(studio.draft.subheadline)
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.9))
@@ -261,6 +394,10 @@ private struct WebsiteHero: View {
     private static let backgroundImageURL = URL(
         string: "https://images.unsplash.com/photo-1552566626-52f8b828add9?auto=format&fit=crop&w=1600&q=80"
     )
+
+    private var displayName: String {
+        studio.restaurant.name.isEmpty ? "Restaurant" : studio.restaurant.name
+    }
 }
 
 private struct HeroPill: View {
@@ -323,7 +460,7 @@ private struct WebsiteMenuSection: View {
                 Text("Featured Menu")
                     .font(.title3.bold())
                 Spacer()
-                Text(menuItems.isEmpty ? "Needs menu" : "\(menuItems.count) items")
+                Text(menuItems.isEmpty ? "Coming soon" : "\(menuItems.count) favorite\(menuItems.count == 1 ? "" : "s")")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(SiteClawTheme.mint)
             }
@@ -332,7 +469,7 @@ private struct WebsiteMenuSection: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Menu not provided yet")
                         .font(.headline)
-                    Text("Add owner-approved dishes and prices before publishing this section.")
+                    Text("Featured dishes will appear here after the owner approves the menu.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -377,12 +514,8 @@ private struct WebsiteMenuItemCard: View {
 
             Text(descriptionText)
                 .font(.caption)
-                .foregroundStyle(hasDescription ? .secondary : SiteClawTheme.gold)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            Label(hasDescription ? "Owner-provided detail" : "Add description", systemImage: hasDescription ? "checkmark.circle" : "pencil")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(hasDescription ? SiteClawTheme.mint : SiteClawTheme.gold)
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 128, alignment: .topLeading)
@@ -399,10 +532,6 @@ private struct WebsiteMenuItemCard: View {
         return price > 0
     }
 
-    private var hasDescription: Bool {
-        !item.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
     private var priceLabel: String {
         guard let price = item.price, price > 0 else {
             return "Price TBD"
@@ -413,7 +542,7 @@ private struct WebsiteMenuItemCard: View {
 
     private var descriptionText: String {
         let description = item.description.trimmingCharacters(in: .whitespacesAndNewlines)
-        return description.isEmpty ? "Description not captured yet." : description
+        return description.isEmpty ? "More details coming soon." : description
     }
 }
 
@@ -421,65 +550,78 @@ private struct WebsiteInfoSection: View {
     let studio: SiteClawStudio
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Visit Us")
-                .font(.title3.bold())
+        if hasVisitDetails {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Visit Us")
+                    .font(.title3.bold())
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
-                ContactFact(
-                    title: "Location",
-                    value: displayValue(studio.restaurant.formattedAddress, fallback: "Location not provided"),
-                    isProvided: !studio.restaurant.formattedAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                    systemImage: "mappin.and.ellipse"
-                )
-                ContactFact(
-                    title: "Hours",
-                    value: displayValue(studio.restaurant.hours, fallback: "Hours not provided"),
-                    isProvided: !studio.restaurant.hours.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                    systemImage: "clock"
-                )
-                ContactFact(
-                    title: "Phone",
-                    value: displayValue(studio.restaurant.phone, fallback: "Phone not provided"),
-                    isProvided: !studio.restaurant.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                    systemImage: "phone"
-                )
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+                    if !locationText.isEmpty {
+                        ContactFact(
+                            title: "Location",
+                            value: locationText,
+                            systemImage: "mappin.and.ellipse"
+                        )
+                    }
+
+                    if !hoursText.isEmpty {
+                        ContactFact(
+                            title: "Hours",
+                            value: hoursText,
+                            systemImage: "clock"
+                        )
+                    }
+
+                    if !phoneText.isEmpty {
+                        ContactFact(
+                            title: "Phone",
+                            value: phoneText,
+                            systemImage: "phone"
+                        )
+                    }
+                }
             }
+            .font(.subheadline)
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .foregroundStyle(SiteClawTheme.ink)
+            .background(Color(red: 0.99, green: 0.96, blue: 0.88))
         }
-        .font(.subheadline)
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .foregroundStyle(SiteClawTheme.ink)
-        .background(Color(red: 0.99, green: 0.96, blue: 0.88))
     }
 
-    private func displayValue(_ value: String, fallback: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? fallback : trimmed
+    private var hasVisitDetails: Bool {
+        !locationText.isEmpty || !hoursText.isEmpty || !phoneText.isEmpty
+    }
+
+    private var locationText: String {
+        studio.restaurant.formattedAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hoursText: String {
+        studio.restaurant.hours.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var phoneText: String {
+        studio.restaurant.phone.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
 private struct ContactFact: View {
     let title: String
     let value: String
-    let isProvided: Bool
     let systemImage: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: systemImage)
-                    .foregroundStyle(isProvided ? SiteClawTheme.mint : SiteClawTheme.gold)
-                Spacer()
-                Text(isProvided ? "Ready" : "Needed")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(isProvided ? SiteClawTheme.mint : SiteClawTheme.gold)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
+                    .foregroundStyle(SiteClawTheme.mint)
                 Text(title)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
                 Text(value)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(SiteClawTheme.ink)
@@ -495,6 +637,7 @@ private struct ContactFact: View {
                 .stroke(.black.opacity(0.06), lineWidth: 1)
         }
     }
+
 }
 
 private struct DraftReadinessCard: View {
@@ -505,7 +648,7 @@ private struct DraftReadinessCard: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("Draft Readiness")
+                        Text("Owner Review")
                             .font(.title2.bold())
                         Text(statusText)
                             .font(.subheadline)
@@ -514,7 +657,7 @@ private struct DraftReadinessCard: View {
 
                     Spacer()
 
-                    Label("\(providedCount)/\(checks.count)", systemImage: "checklist")
+                    Label("\(providedCount)/\(requiredCount)", systemImage: "checklist")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(SiteClawTheme.mint)
                         .padding(.horizontal, 10)
@@ -536,7 +679,7 @@ private struct DraftReadinessCard: View {
         [
             DraftReadinessCheck(
                 title: "Restaurant Name",
-                detail: displayStatus(studio.restaurant.name, fallback: "Needed before publishing"),
+                detail: displayStatus(studio.restaurant.name, fallback: "Needed before final review"),
                 isReady: !studio.restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 systemImage: "storefront"
             ),
@@ -558,27 +701,33 @@ private struct DraftReadinessCard: View {
             ),
             DraftReadinessCheck(
                 title: "Street Address",
-                detail: displayStatus(studio.restaurant.formattedAddress, fallback: "Optional, but useful for directions"),
+                detail: streetAddressStatus,
                 isReady: !studio.restaurant.streetAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                systemImage: "mappin.and.ellipse"
+                systemImage: "mappin.and.ellipse",
+                isOptional: true
             ),
             DraftReadinessCheck(
                 title: "Phone",
                 detail: displayStatus(studio.restaurant.phone, fallback: "Optional, but useful for customers"),
                 isReady: !studio.restaurant.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                systemImage: "phone"
+                systemImage: "phone",
+                isOptional: true
             )
         ]
     }
 
     private var providedCount: Int {
-        checks.filter(\.isReady).count
+        checks.filter { !$0.isOptional && $0.isReady }.count
+    }
+
+    private var requiredCount: Int {
+        checks.filter { !$0.isOptional }.count
     }
 
     private var statusText: String {
-        providedCount == checks.count
-            ? "This draft has the basics needed for a more complete publish preview."
-            : "SiteClaw can demo the site now, while clearly flagging details still missing from the owner."
+        providedCount == requiredCount
+            ? "This preview has the core details customers expect."
+            : "The preview is usable now, with a few details still worth confirming."
     }
 
     private var missingPriceCount: Int {
@@ -590,6 +739,15 @@ private struct DraftReadinessCard: View {
             $0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         .count
+    }
+
+    private var streetAddressStatus: String {
+        let streetAddress = studio.restaurant.streetAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !streetAddress.isEmpty else {
+            return "Optional, but useful for directions"
+        }
+
+        return studio.restaurant.formattedAddress
     }
 
     private func displayStatus(_ value: String, fallback: String) -> String {
@@ -610,6 +768,11 @@ private struct DraftReadinessItem: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(check.title)
                     .font(.headline)
+                if check.isOptional {
+                    Text(check.isReady ? "Optional detail captured" : "Optional detail")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(SiteClawTheme.gold)
+                }
                 Text(check.detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -631,6 +794,87 @@ private struct DraftReadinessCheck: Identifiable {
     var detail: String
     var isReady: Bool
     var systemImage: String
+    var isOptional = false
+}
+
+private struct PreviewProofToolsCard: View {
+    let studio: SiteClawStudio
+
+    var body: some View {
+        VStack(spacing: 12) {
+            SectionHeader(
+                title: "Proof Tools",
+                subtitle: "Launch signals and generated data kept one level below the demo path."
+            )
+
+            ClawCard {
+                VStack(spacing: 0) {
+                    NavigationLink {
+                        DashboardContentView(studio: studio)
+                    } label: {
+                        ProofToolRow(
+                            title: "Launch Dashboard",
+                            detail: "\(studio.completionPercent)% complete - \(studio.publishStatus)",
+                            systemImage: "chart.bar.xaxis",
+                            color: SiteClawTheme.sky
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider()
+                        .padding(.leading, 44)
+
+                    NavigationLink {
+                        RestaurantJSONContentView(studio: studio)
+                    } label: {
+                        ProofToolRow(
+                            title: "Structured JSON",
+                            detail: "\(studio.restaurant.menuItems.count) menu item\(studio.restaurant.menuItems.count == 1 ? "" : "s") - \(studio.draft.seoKeywords.count) SEO terms",
+                            systemImage: "curlybraces",
+                            color: SiteClawTheme.coral
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+private struct ProofToolRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.headline)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(color)
+                .frame(width: 32, height: 32)
+                .background(color.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(SiteClawTheme.ink)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
 }
 
 private struct SEOSection: View {
@@ -638,7 +882,7 @@ private struct SEOSection: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            SectionHeader(title: "AI Output", subtitle: "Generated pages and search phrases for local discovery.")
+            SectionHeader(title: "Search Preview", subtitle: "Pages and local phrases included with the generated site.")
 
             ClawCard {
                 VStack(alignment: .leading, spacing: 14) {

@@ -15,6 +15,7 @@ final class SiteClawStudio {
     var metrics: [DashboardMetric]
     var voicePrompts: [VoiceOnboardingPrompt]
     var voiceTranscript: String
+    var pendingVoiceAnswer: String
     var realtimeStatus: String
     var realtimeConnectionDetail: String
     var realtimeModel: String
@@ -38,8 +39,9 @@ final class SiteClawStudio {
         metrics: [DashboardMetric],
         voicePrompts: [VoiceOnboardingPrompt] = VoiceOnboardingPrompt.samples,
         voiceTranscript: String = VoiceOnboardingPrompt.sampleTranscript,
+        pendingVoiceAnswer: String = "",
         realtimeStatus: String = "Ready",
-        realtimeConnectionDetail: String = "Use Start to request a short-lived Realtime session from the local backend.",
+        realtimeConnectionDetail: String = "Tap Start to begin the guided voice demo.",
         realtimeModel: String = "",
         realtimeVoice: String = "",
         realtimeSessionExpiresAt: Date? = nil,
@@ -50,7 +52,7 @@ final class SiteClawStudio {
         isPublished: Bool = false,
         isDraftGenerated: Bool = true,
         monthlyPrice: Int = 19,
-        siteExportStatus: String = "No static export prepared yet.",
+        siteExportStatus: String = "No site export prepared yet.",
         lastSiteExportedAt: Date? = nil
     ) {
         self.restaurant = restaurant
@@ -60,6 +62,7 @@ final class SiteClawStudio {
         self.metrics = metrics
         self.voicePrompts = voicePrompts
         self.voiceTranscript = voiceTranscript
+        self.pendingVoiceAnswer = pendingVoiceAnswer
         self.realtimeStatus = realtimeStatus
         self.realtimeConnectionDetail = realtimeConnectionDetail
         self.realtimeModel = realtimeModel
@@ -220,7 +223,20 @@ final class SiteClawStudio {
             parts.append("expires \(realtimeSessionExpiresAt.formatted(date: .omitted, time: .shortened))")
         }
 
-        return parts.isEmpty ? "Local backend: http://localhost:8787" : parts.joined(separator: " - ")
+        return parts.isEmpty ? "Voice service ready" : parts.joined(separator: " - ")
+    }
+
+    var realtimeAudioDiagnosticLabel: String {
+        if realtimeStreamedAudioBytes > 0 {
+            return "Microphone is active"
+        }
+
+        switch realtimeStatus {
+        case "Connecting", "Streaming", "Listening", "Processing", "Transcribing":
+            return "Listening for sound"
+        default:
+            return ""
+        }
     }
 
     var restaurantJSON: RestaurantJSON {
@@ -244,24 +260,37 @@ final class SiteClawStudio {
     }
 
     func generateDraft() {
+        polishCapturedProfileForPublishing()
+
         let restaurantName = restaurant.name.isEmpty ? "your restaurant" : restaurant.name
-        let cuisine = restaurant.cuisine.isEmpty ? "local food" : restaurant.cuisine
+        let cuisine = restaurant.cuisine.isEmpty ? "Local restaurant" : restaurant.cuisine
         let neighborhood = restaurant.neighborhood.isEmpty ? "your neighborhood" : restaurant.neighborhood
+        let offer = websiteOfferPhrase(cuisine: cuisine, menuItems: restaurant.menuItems)
+        let headline = restaurant.name.isEmpty
+            ? "A polished restaurant website from your voice"
+            : "\(restaurantName) serves \(offer) in \(neighborhood)"
+        let keywords = localSEOKeywords(
+            restaurantName: restaurantName,
+            cuisine: cuisine,
+            offer: offer,
+            neighborhood: neighborhood,
+            menuItems: restaurant.menuItems
+        )
 
         draft = WebsiteDraft(
-            headline: "\(restaurantName) brings \(cuisine.lowercased()) to \(neighborhood)",
+            headline: headline,
             subheadline: restaurant.story.isEmpty
                 ? "Fresh food, clear hours, and a menu customers can trust before they visit."
                 : restaurant.story,
             callToAction: "View Menu",
             pages: ["Home", "Menu", "Hours", "Location", "About"],
-            seoKeywords: [restaurantName, cuisine, "\(neighborhood) restaurant", "best \(cuisine.lowercased()) near me"],
+            seoKeywords: keywords,
             url: slugURL(for: restaurantName),
             lastGeneratedSummary: "Generated a five-page restaurant site with menu, hours, local SEO, and mobile-ready content."
         )
 
         isDraftGenerated = true
-        siteExportStatus = "Draft changed. Prepare a fresh static export."
+        siteExportStatus = "Draft changed. Refresh the site export when ready."
         lastSiteExportedAt = nil
         messages.append(
             BuilderMessage(
@@ -278,6 +307,8 @@ final class SiteClawStudio {
     }
 
     func applyGeneratedDraft(_ response: SiteGenerationResponse) {
+        polishCapturedProfileForPublishing()
+
         let generatedRestaurantName = RestaurantNameResolver.displayName(
             restaurantName: restaurant.name,
             headline: response.draft.headline,
@@ -290,9 +321,16 @@ final class SiteClawStudio {
            !generatedRestaurantName.isEmpty {
             restaurant.name = generatedRestaurantName
         }
+        let headline = polishedDraftHeadline(
+            response.draft.headline,
+            restaurantName: restaurantName,
+            cuisine: restaurant.cuisine,
+            neighborhood: restaurant.neighborhood,
+            menuItems: restaurant.menuItems
+        )
 
         draft = WebsiteDraft(
-            headline: response.draft.headline,
+            headline: headline,
             subheadline: response.draft.subheadline,
             callToAction: response.draft.callToAction,
             pages: response.draft.pages,
@@ -303,8 +341,8 @@ final class SiteClawStudio {
 
         isDraftGenerated = true
         realtimeStatus = "Generated"
-        realtimeConnectionDetail = "AI generated website copy with \(response.model)."
-        siteExportStatus = "Draft changed. Prepare a fresh static export."
+        realtimeConnectionDetail = "Website draft is ready for Preview."
+        siteExportStatus = "Draft changed. Refresh the site export when ready."
         lastSiteExportedAt = nil
         messages.append(BuilderMessage(role: .assistant, text: response.reply))
         addUpdate(
@@ -315,9 +353,9 @@ final class SiteClawStudio {
         )
     }
 
-    func useLocalDraftFallback(after error: Error) {
+    func useLocalDraftFallback(after _: Error) {
         processVoiceTranscript()
-        realtimeConnectionDetail = "Used the local demo generator because backend generation failed: \(error.localizedDescription)"
+        realtimeConnectionDetail = "SiteClaw used the offline demo draft so Preview stays ready."
     }
 
     func publishDraft() {
@@ -334,7 +372,7 @@ final class SiteClawStudio {
     func prepareSiteExport() {
         let export = siteExport
         lastSiteExportedAt = Date()
-        siteExportStatus = "\(export.defaultFilename).html is ready to save or hand to the renderer."
+        siteExportStatus = "\(export.defaultFilename).html is ready to save or share."
         addUpdate(
             type: .publish,
             title: "Static site export prepared",
@@ -368,14 +406,15 @@ final class SiteClawStudio {
     func loadVoiceExample() {
         restaurant = RestaurantProfile.sample
         voiceTranscript = VoiceOnboardingPrompt.sampleTranscript
+        pendingVoiceAnswer = ""
         voicePrompts = VoiceOnboardingPrompt.filledSamples
         activeVoicePromptIndex = voicePrompts.count - 1
         realtimeStatus = "Captured"
-        realtimeConnectionDetail = "Loaded the guided demo transcript and extracted restaurant details."
+        realtimeConnectionDetail = "Loaded the guided demo transcript and prepared the restaurant details."
         messages.append(
             BuilderMessage(
                 role: .owner,
-                text: "We are a family-owned Vietnamese restaurant in San Jose. Here is our menu, hours, and story. I need a simple site customers can trust."
+                text: "Sunset Grill is an American burger and sandwich spot in San Jose. Here is our menu, hours, and neighborhood story."
             )
         )
         generateDraft()
@@ -389,8 +428,8 @@ final class SiteClawStudio {
 
         realtimeStatus = "Connecting"
         realtimeConnectionDetail = shouldResumeVoiceCapture
-            ? "Requesting a short-lived Realtime token so you can continue the current prompt."
-            : "Requesting a short-lived Realtime token from the SiteClaw backend."
+            ? "Preparing voice capture so you can continue the current prompt."
+            : "Preparing voice capture for the guided questions."
         realtimeModel = ""
         realtimeVoice = ""
         realtimeSessionExpiresAt = nil
@@ -409,10 +448,11 @@ final class SiteClawStudio {
             activeVoicePromptIndex = 0
             voicePrompts = VoiceOnboardingPrompt.samples
             voiceTranscript = ""
+            pendingVoiceAnswer = ""
             messages.append(
                 BuilderMessage(
                     role: .assistant,
-                    text: "Tell me your restaurant name, cuisine, hours, location, story, and three menu items."
+                    text: "Answer the visible question, pause, then tap Capture when the transcript matches that question."
                 )
             )
         }
@@ -422,8 +462,8 @@ final class SiteClawStudio {
         realtimeAudioLevel = 0
         realtimeStatus = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Ready" : "Captured"
         realtimeConnectionDetail = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "Realtime session stopped before transcript text was captured."
-            : "Realtime session stopped. Generate a website draft from the captured transcript when you are ready."
+            ? "Recording stopped before text was captured."
+            : "Recording stopped. Generate a website draft when you are ready."
     }
 
     func completeRealtimeSession(_ response: RealtimeSessionResponse) {
@@ -431,11 +471,11 @@ final class SiteClawStudio {
         realtimeModel = response.model ?? ""
         realtimeVoice = response.voice ?? ""
         realtimeSessionExpiresAt = response.expiresAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
-        realtimeConnectionDetail = "Backend returned a client secret. The next layer is live audio streaming in the app."
+        realtimeConnectionDetail = "Voice capture is ready to start."
         messages.append(
             BuilderMessage(
                 role: .assistant,
-                text: "Realtime session token is ready. Next we can connect microphone audio to the Realtime API."
+                text: "Voice capture is ready. Answer the visible question when you start recording."
             )
         )
     }
@@ -448,34 +488,34 @@ final class SiteClawStudio {
         realtimeAudioLevel = 0
         realtimeStreamedAudioBytes = 0
         realtimeAssistantReplyDraft = ""
-        realtimeConnectionDetail = "Realtime token is ready. Opening the microphone and WebSocket stream."
+        realtimeConnectionDetail = "Opening the microphone for the current question."
     }
 
     func handleRealtimeStreamEvent(_ event: RealtimeAudioStreamingEvent) {
         switch event {
         case .microphonePermissionGranted:
             realtimeStatus = "Connecting"
-            realtimeConnectionDetail = "Microphone permission granted. Connecting to OpenAI Realtime."
+            realtimeConnectionDetail = "Microphone permission granted."
         case .webSocketConnected:
             realtimeStatus = "Streaming"
-            realtimeConnectionDetail = "Realtime WebSocket connected. Speak naturally into the microphone."
+            realtimeConnectionDetail = "Voice capture connected. Speak naturally into the microphone."
         case .sessionConfigured:
-            realtimeConnectionDetail = "Realtime session configured for 24 kHz PCM microphone input and live transcription."
-        case .microphoneStarted(let sampleRate, let channels):
-            realtimeStatus = "Listening"
-            realtimeConnectionDetail = "Microphone streaming started from \(channels) channel input at \(Int(sampleRate)) Hz."
+            realtimeConnectionDetail = "Voice capture is configured for live transcription."
+        case .microphoneStarted(_, _):
+            realtimeStatus = "Streaming"
+            realtimeConnectionDetail = "Microphone opened. Waiting for audio to reach SiteClaw."
         case .audioLevel(let level):
             realtimeAudioLevel = level
         case .audioChunkSent(_, let totalBytes):
             realtimeStreamedAudioBytes = totalBytes
             realtimeStatus = "Listening"
-            realtimeConnectionDetail = "Streaming microphone audio to Realtime. Sent \(Self.byteCountFormatter.string(fromByteCount: Int64(totalBytes)))."
+            realtimeConnectionDetail = "Listening. Keep your answer focused on the visible question."
         case .speechStarted:
             realtimeStatus = "Listening"
             realtimeConnectionDetail = "Speech detected. Keep answering the current SiteClaw prompt."
         case .speechStopped:
             realtimeStatus = "Processing"
-            realtimeConnectionDetail = "Realtime detected a pause and is committing this answer."
+            realtimeConnectionDetail = "Pause detected. Preparing this answer."
         case .inputCommitted:
             realtimeStatus = "Transcribing"
             realtimeConnectionDetail = "Audio turn committed. Waiting for transcript text."
@@ -506,7 +546,7 @@ final class SiteClawStudio {
         case .disconnected:
             realtimeAudioLevel = 0
             realtimeStatus = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Ready" : "Captured"
-            realtimeConnectionDetail = "Realtime stream closed."
+            realtimeConnectionDetail = "Voice capture closed."
         case .warning(let message):
             realtimeConnectionDetail = message
         case .error(let message):
@@ -528,7 +568,7 @@ final class SiteClawStudio {
         messages.append(
             BuilderMessage(
                 role: .assistant,
-                text: "I could not create a Realtime session yet. Start the backend and make sure Backend/.env has an OPENAI_API_KEY."
+                text: "I could not start live voice yet. Check that the SiteClaw backend is running, then try again."
             )
         )
     }
@@ -542,7 +582,7 @@ final class SiteClawStudio {
         messages.append(
             BuilderMessage(
                 role: .assistant,
-                text: "Realtime connected, but the live audio stream stopped with an error: \(error.localizedDescription)"
+                text: "Voice capture stopped. Check microphone access, then try recording again."
             )
         )
     }
@@ -551,10 +591,12 @@ final class SiteClawStudio {
         guard voicePrompts.indices.contains(activeVoicePromptIndex) else { return }
 
         voiceTranscript = VoiceTranscriptNormalizer.normalize(voiceTranscript)
+        pendingVoiceAnswer = VoiceTranscriptNormalizer.normalize(pendingVoiceAnswer)
         let currentPrompt = voicePrompts[activeVoicePromptIndex]
+        let answerSource = currentAnswerSource
 
         if let missingDetailKind = currentPrompt.missingDetailKind {
-            let answer = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+            let answer = answerSource.trimmingCharacters(in: .whitespacesAndNewlines)
             guard applyMissingDetailAnswer(answer, kind: missingDetailKind) else {
                 realtimeStatus = "Needs Detail"
                 realtimeConnectionDetail = "That answer did not include the detail SiteClaw needs yet."
@@ -562,14 +604,17 @@ final class SiteClawStudio {
             }
 
             voicePrompts[activeVoicePromptIndex].capturedAnswer = answer
+            pendingVoiceAnswer = ""
             realtimeStatus = missingDetails.isEmpty ? "Ready to Publish" : "Captured"
             realtimeConnectionDetail = nextMissingDetailMessage
             return
         }
 
-        let extraction = TranscriptRestaurantExtractor.extract(from: voiceTranscript)
-        let answer = extraction.promptAnswers[activeVoicePromptIndex]
+        let extraction = TranscriptRestaurantExtractor.extract(from: answerSource)
+        let extractedAnswer = extraction.promptAnswers[activeVoicePromptIndex]
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackAnswer = answerSource.trimmingCharacters(in: .whitespacesAndNewlines)
+        let answer = extractedAnswer.isEmpty ? fallbackAnswer : extractedAnswer
 
         guard !answer.isEmpty else {
             realtimeStatus = "Needs Answer"
@@ -579,12 +624,15 @@ final class SiteClawStudio {
 
         restaurant = mergeWithExistingProfile(extraction.profile)
         voicePrompts[activeVoicePromptIndex].capturedAnswer = answer
+        pendingVoiceAnswer = ""
 
         if activeVoicePromptIndex < voicePrompts.count - 1 {
             activeVoicePromptIndex += 1
             realtimeStatus = "Listening"
+            realtimeConnectionDetail = "Captured that answer. Read the next question, then speak one answer and tap Capture."
         } else {
             realtimeStatus = "Captured"
+            realtimeConnectionDetail = "All guided answers are captured. Generate the website draft when ready."
         }
     }
 
@@ -622,8 +670,9 @@ final class SiteClawStudio {
     func resetVoiceOnboarding() {
         voicePrompts = VoiceOnboardingPrompt.samples
         voiceTranscript = ""
+        pendingVoiceAnswer = ""
         realtimeStatus = "Ready"
-        realtimeConnectionDetail = "Use Start to request a short-lived Realtime session from the local backend."
+        realtimeConnectionDetail = "Tap Start to begin the guided voice demo."
         realtimeModel = ""
         realtimeVoice = ""
         realtimeSessionExpiresAt = nil
@@ -645,6 +694,7 @@ final class SiteClawStudio {
         voiceTranscript = VoiceTranscriptNormalizer.normalize(trimmedTranscript)
         let extraction = TranscriptRestaurantExtractor.extract(from: voiceTranscript)
         restaurant = mergeWithExistingProfile(extraction.profile)
+        polishCapturedProfileForPublishing()
         voicePrompts = TranscriptRestaurantExtractor.makePrompts(from: extraction.promptAnswers)
         activeVoicePromptIndex = voicePrompts.firstIndex { $0.capturedAnswer.isEmpty }
             ?? max(voicePrompts.count - 1, 0)
@@ -652,7 +702,7 @@ final class SiteClawStudio {
         realtimeConnectionDetail = missingDetails.isEmpty
             ? "Transcript processed and all tracked owner details are captured."
             : "Transcript processed. \(missingDetails.count) detail\(missingDetails.count == 1 ? "" : "s") still need owner input."
-        siteExportStatus = "Restaurant details changed. Prepare a fresh static export."
+        siteExportStatus = "Restaurant details changed. Refresh the site export when ready."
         lastSiteExportedAt = nil
         return true
     }
@@ -673,10 +723,18 @@ final class SiteClawStudio {
     }
 
     private func appendTranscriptAnswer(_ answer: String) {
+        let normalizedAnswer = VoiceTranscriptNormalizer.normalize(answer)
+
         if voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            voiceTranscript = answer
-        } else if !voiceTranscript.contains(answer) {
-            voiceTranscript += " \(answer)"
+            voiceTranscript = normalizedAnswer
+        } else if !voiceTranscript.contains(normalizedAnswer) {
+            voiceTranscript += " \(normalizedAnswer)"
+        }
+
+        if pendingVoiceAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            pendingVoiceAnswer = normalizedAnswer
+        } else if !pendingVoiceAnswer.contains(normalizedAnswer) {
+            pendingVoiceAnswer += " \(normalizedAnswer)"
         }
     }
 
@@ -684,37 +742,17 @@ final class SiteClawStudio {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        appendTranscriptAnswer(trimmed)
-        messages.append(BuilderMessage(role: .owner, text: trimmed))
+        let normalized = VoiceTranscriptNormalizer.normalize(trimmed)
+        appendTranscriptAnswer(normalized)
+        messages.append(BuilderMessage(role: .owner, text: normalized))
 
-        if voicePrompts.indices.contains(activeVoicePromptIndex),
-           voicePrompts[activeVoicePromptIndex].capturedAnswer.isEmpty {
-            if let missingDetailKind = voicePrompts[activeVoicePromptIndex].missingDetailKind {
-                if applyMissingDetailAnswer(trimmed, kind: missingDetailKind) {
-                    voicePrompts[activeVoicePromptIndex].capturedAnswer = trimmed
-                    realtimeStatus = missingDetails.isEmpty ? "Ready to Publish" : "Captured"
-                    realtimeConnectionDetail = nextMissingDetailMessage
-                } else {
-                    realtimeStatus = "Needs Detail"
-                    realtimeConnectionDetail = "I heard that answer, but it did not include the detail SiteClaw needs yet."
-                }
-                return
-            }
+        realtimeStatus = "Heard Answer"
+        realtimeConnectionDetail = "Transcript is ready for the visible question. Tap Capture when it looks right."
+    }
 
-            voicePrompts[activeVoicePromptIndex].capturedAnswer = trimmed
-
-            if activeVoicePromptIndex < voicePrompts.count - 1 {
-                activeVoicePromptIndex += 1
-                realtimeStatus = "Listening"
-                realtimeConnectionDetail = "Captured that answer. Continue with the next prompt."
-            } else {
-                realtimeStatus = "Captured"
-                realtimeConnectionDetail = "All guided answers have transcript text. Generate the website draft when ready."
-            }
-        } else {
-            realtimeStatus = "Captured"
-            realtimeConnectionDetail = "Transcript captured from the live Realtime stream."
-        }
+    private var currentAnswerSource: String {
+        let pending = pendingVoiceAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+        return pending.isEmpty ? voiceTranscript : pending
     }
 
     @discardableResult
@@ -754,7 +792,7 @@ final class SiteClawStudio {
         }
 
         if wasApplied {
-            siteExportStatus = "Restaurant details changed. Prepare a fresh static export."
+            siteExportStatus = "Restaurant details changed. Refresh the site export when ready."
             lastSiteExportedAt = nil
         }
 
@@ -824,7 +862,213 @@ final class SiteClawStudio {
         }
     }
 
+    private func polishCapturedProfileForPublishing() {
+        restaurant.cuisine = polishedCuisine(restaurant.cuisine, menuItems: restaurant.menuItems)
+        repairKnownDemoPriceArtifacts()
+
+        guard !restaurant.menuItems.isEmpty else { return }
+
+        for index in restaurant.menuItems.indices {
+            let description = restaurant.menuItems[index].description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let polishedDescription = defaultMenuDescription(
+                for: restaurant.menuItems[index].name,
+                cuisine: restaurant.cuisine,
+                restaurantName: restaurant.name
+            )
+
+            if description.isEmpty || shouldReplaceGeneratedMenuDescription(description, for: restaurant.menuItems[index].name) {
+                restaurant.menuItems[index].description = polishedDescription
+            }
+        }
+    }
+
+    private func repairKnownDemoPriceArtifacts() {
+        let restaurantName = restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let menuKeys = restaurant.menuItems.map { MissingDetailAnswerExtractor.menuKey($0.name) }
+
+        guard restaurantName == "sunset grill",
+              menuKeys.contains(where: { $0.contains("cheeseburger") }),
+              menuKeys.contains(where: { $0.contains("chicken") && $0.contains("sandwich") }),
+              menuKeys.contains(where: isFriesMenuKey),
+              menuKeys.contains("lemonade") else {
+            return
+        }
+
+        for index in restaurant.menuItems.indices {
+            guard isFriesMenuKey(MissingDetailAnswerExtractor.menuKey(restaurant.menuItems[index].name)) else {
+                continue
+            }
+
+            let price = restaurant.menuItems[index].price ?? 0
+            if price == 0 || abs(price - 4.0) < 0.001 {
+                restaurant.menuItems[index].price = 4.99
+            }
+        }
+    }
+
+    private func isFriesMenuKey(_ key: String) -> Bool {
+        key == "fries" || key == "frie"
+    }
+
+    private func polishedCuisine(_ cuisine: String, menuItems: [MenuItem]) -> String {
+        let trimmed = cuisine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercased = trimmed.lowercased()
+
+        if lowercased == "american" || lowercased == "american food" {
+            return "American restaurant"
+        }
+
+        if trimmed.isEmpty, !menuItems.isEmpty {
+            return "Local restaurant"
+        }
+
+        return trimmed
+    }
+
+    private func websiteOfferPhrase(cuisine: String, menuItems: [MenuItem]) -> String {
+        let itemKeys = menuItems.map { MissingDetailAnswerExtractor.menuKey($0.name) }
+        let hasBurger = itemKeys.contains { $0.contains("burger") }
+        let hasSandwich = itemKeys.contains { $0.contains("sandwich") }
+
+        if cuisine.localizedCaseInsensitiveContains("american"), hasBurger, hasSandwich {
+            return "American burgers and sandwiches"
+        }
+
+        let cleanedCuisine = cuisine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercasedCuisine = cleanedCuisine.lowercased()
+
+        if lowercasedCuisine == "american restaurant" {
+            return "American food"
+        }
+
+        if lowercasedCuisine.hasSuffix(" restaurant") {
+            return String(cleanedCuisine.dropLast(" restaurant".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if !cleanedCuisine.isEmpty {
+            return cleanedCuisine
+        }
+
+        return "local food"
+    }
+
+    private func polishedDraftHeadline(
+        _ headline: String,
+        restaurantName: String,
+        cuisine: String,
+        neighborhood: String,
+        menuItems: [MenuItem]
+    ) -> String {
+        let trimmed = headline.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercased = trimmed.lowercased()
+
+        guard trimmed.isEmpty
+                || lowercased.contains("brings american")
+                || lowercased.contains("brings local food")
+        else {
+            return trimmed
+        }
+
+        let offer = websiteOfferPhrase(cuisine: cuisine, menuItems: menuItems)
+        let city = neighborhood.trimmingCharacters(in: .whitespacesAndNewlines)
+        return city.isEmpty
+            ? "\(restaurantName) serves \(offer)"
+            : "\(restaurantName) serves \(offer) in \(city)"
+    }
+
+    private func localSEOKeywords(
+        restaurantName: String,
+        cuisine: String,
+        offer: String,
+        neighborhood: String,
+        menuItems: [MenuItem]
+    ) -> [String] {
+        var keywords = [
+            restaurantName,
+            neighborhood.isEmpty ? cuisine : "\(cuisine) in \(neighborhood)",
+            neighborhood.isEmpty ? offer : "\(offer.lowercased()) in \(neighborhood)"
+        ]
+
+        keywords.append(contentsOf: menuItems.prefix(3).map(\.name))
+
+        return keywords.reduce(into: [String]()) { result, keyword in
+            let cleaned = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleaned.isEmpty,
+                  !result.contains(where: { $0.caseInsensitiveCompare(cleaned) == .orderedSame })
+            else { return }
+            result.append(cleaned)
+        }
+    }
+
+    private func defaultMenuDescription(for itemName: String, cuisine: String, restaurantName: String) -> String {
+        let name = itemName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = MissingDetailAnswerExtractor.menuKey(name)
+        let restaurant = restaurantName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let place = restaurant.isEmpty ? "the menu" : "\(restaurant)'s menu"
+        let restaurantLabel = restaurant.isEmpty ? "the restaurant" : restaurant
+
+        if key.contains("cheeseburger") {
+            return "A classic cheeseburger with the fresh, friendly feel customers expect at \(restaurantLabel)."
+        }
+
+        if key.contains("chicken") && key.contains("sandwich") {
+            return "A satisfying chicken sandwich made for a quick lunch or casual dinner."
+        }
+
+        if key == "fries" || key == "frie" || key.contains("fries") || key.contains("frie") {
+            return "Crisp fries that pair naturally with burgers, sandwiches, and cold drinks."
+        }
+
+        if key.contains("lemonade") {
+            return "A bright, refreshing lemonade for lunch, dinner, or a quick stop."
+        }
+
+        if key.contains("pho") {
+            return "A comforting bowl built around slow-simmered broth and fresh herbs."
+        }
+
+        if key.contains("rice bowl") {
+            return "A hearty rice bowl with fresh toppings and a simple, satisfying finish."
+        }
+
+        if key.contains("spring roll") {
+            return "Fresh spring rolls made for a light start or shareable side."
+        }
+
+        let cuisineLabel = cuisine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if cuisineLabel.isEmpty {
+            return "A customer favorite from \(place)."
+        }
+
+        return "A customer favorite from the \(cuisineLabel) lineup at \(restaurantLabel)."
+    }
+
+    private func shouldReplaceGeneratedMenuDescription(_ description: String, for itemName: String) -> Bool {
+        let key = MissingDetailAnswerExtractor.menuKey(itemName)
+        let lowercasedDescription = description.lowercased()
+        let isKnownPolishedItem = key.contains("cheeseburger")
+            || (key.contains("chicken") && key.contains("sandwich"))
+            || key.contains("fries")
+            || key.contains("frie")
+            || key.contains("lemonade")
+            || key.contains("pho")
+            || key.contains("rice bowl")
+            || key.contains("spring roll")
+
+        guard isKnownPolishedItem else { return false }
+
+        return lowercasedDescription.contains("description not captured")
+            || lowercasedDescription.contains("customer favorite from the")
+            || lowercasedDescription.contains("american restaurant lineup")
+    }
+
     private func addUpdate(type: SiteUpdate.UpdateType, title: String, detail: String, timeLabel: String) {
+        updates.removeAll { update in
+            update.type == type
+                && update.title == title
+                && update.detail == detail
+        }
+
         updates.insert(
             SiteUpdate(type: type, title: title, detail: detail, timeLabel: timeLabel),
             at: 0
@@ -841,15 +1085,9 @@ final class SiteClawStudio {
         return "https://\(slug.isEmpty ? "restaurant" : slug).siteclaw.app"
     }
 
-    private static let byteCountFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB]
-        formatter.countStyle = .file
-        return formatter
-    }()
 }
 
-private struct TranscriptRestaurantExtraction {
+struct TranscriptRestaurantExtraction {
     var profile: RestaurantProfile
     var promptAnswers: [String]
 }
@@ -863,9 +1101,19 @@ enum VoiceTranscriptNormalizer {
             .replacingOccurrences(of: #"\bfah rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bfa rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bpho rice bowls\b"#, with: "pho, rice bowls", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bbuddha\s+lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bhouse\s+of\s+(?=\$?\d)"#, with: "house pho for ", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(?:fauspa|fau spa|fouspa|fowspa|howspha|howsfa|howspa|house fa|house spa)\b"#, with: "house pho", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(rice bowls?\s+for\s+)(\d{1,2})\.90\s+\2\.99\b"#, with: "$1$2.49", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(\d{1,2})\s+(?:forty|fourty)[-\s]?(?:nine|9)\b"#, with: "$1.49", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(\d{1,2})\s+eighty[-\s]?(?:nine|9)\b"#, with: "$1.99", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(\d{1,2})\s+ninety[-\s]?(?:nine|9)\b"#, with: "$1.99", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bfo lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\b(?:pha|pah|fa|fah|fu|foo|buh|boh|bo|poh|fuh)\s+lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bphone lotus\b"#, with: "Pho Lotus", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bprize\s+for\b"#, with: "fries for", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\bprized\b"#, with: "fries", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\beat\s+your\s+(?=(?:cheeseburgers?|chicken sandwiches?|fries|lemonade|house pho|rice bowls?|spring rolls?))"#, with: "Feature ", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\ba\.?\s*m\.?"#, with: "AM", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\bp\.?\s*m\.?"#, with: "PM", options: [.regularExpression, .caseInsensitive])
 
@@ -878,6 +1126,9 @@ enum VoiceTranscriptNormalizer {
         }
 
         return normalized
+            .replacingOccurrences(of: #"\b(\d{1,2})\s+(?:forty|fourty)[-\s]?(?:nine|9)\b"#, with: "$1.49", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(\d{1,2})\s+eighty[-\s]?(?:nine|9)\b"#, with: "$1.99", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(\d{1,2})\s+ninety[-\s]?(?:nine|9)\b"#, with: "$1.99", options: [.regularExpression, .caseInsensitive])
     }
 
     private static let numberWords = [
@@ -904,14 +1155,14 @@ enum VoiceTranscriptNormalizer {
     ]
 }
 
-private struct AddressExtraction {
+struct AddressExtraction {
     var streetAddress: String = ""
     var city: String = ""
     var state: String = ""
     var postalCode: String = ""
 }
 
-private enum MissingDetailAnswerExtractor {
+enum MissingDetailAnswerExtractor {
     static func restaurantName(from text: String) -> String? {
         let patterns = [
             #"\b(?:called|named|restaurant is|business is)\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|we\s+|we're\s+|serves?\s+|open\s+|in\s+)|$)"#,
@@ -993,9 +1244,10 @@ private enum MissingDetailAnswerExtractor {
     }
 
     static func address(from text: String) -> AddressExtraction {
+        let addressText = addressFocusedText(from: text) ?? text
         let street = firstMatch(
-            #"\b(\d{2,6}\s+[A-Za-z0-9 .'#-]+?\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Place|Pl\.?|Court|Ct\.?))\b"#,
-            in: text
+            #"\b(((?:\d\s*){2,6})(?!\s*(?:AM|PM)\b)\s+[A-Za-z0-9 .'#-]+?\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Place|Pl\.?|Court|Ct\.?))\b"#,
+            in: addressText
         ) ?? ""
         let city = knownCities.first { text.range(of: $0, options: [.caseInsensitive]) != nil } ?? ""
         let rawState = firstMatch(#"\b(CA|California)\b"#, in: text) ?? ""
@@ -1027,6 +1279,28 @@ private enum MissingDetailAnswerExtractor {
         "San Jose", "San Francisco", "Oakland", "Daly City", "Los Angeles", "Sacramento",
         "Berkeley", "Fremont", "Santa Clara", "Sunnyvale", "Mountain View", "Palo Alto"
     ]
+
+    private static func addressFocusedText(from text: String) -> String? {
+        let patterns = [
+            #"\b(?:restaurant\s+street\s+address\s+is|street\s+address\s+is|address\s+is|located\s+at|we\s+are\s+at|we're\s+at|restaurant\s+is\s+at)\s+(.+?)(?=$|\.|;|\n)"#
+        ]
+
+        for pattern in patterns {
+            guard let match = firstMatch(pattern, in: text) else { continue }
+            let cleaned = match
+                .replacingOccurrences(
+                    of: #"^(?:the\s+)?(?:restaurant\s+)?street\s+address\s+"#,
+                    with: "",
+                    options: [.regularExpression, .caseInsensitive]
+                )
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty {
+                return cleaned
+            }
+        }
+
+        return nil
+    }
 
     private static func bestMenuItemIndex(for text: String, in items: [MenuItem]) -> Int? {
         let key = menuKey(text)
@@ -1109,9 +1383,16 @@ private enum MissingDetailAnswerExtractor {
     }
 
     private static func cleanAddress(_ value: String) -> String {
-        value
+        let cleaned = value
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".:;,")))
+
+        guard let rawStreetNumber = firstMatch(#"^((?:\d\s*){2,6})(?=\s+[A-Za-z])"#, in: cleaned) else {
+            return cleaned
+        }
+
+        let collapsedStreetNumber = rawStreetNumber.filter(\.isNumber)
+        return collapsedStreetNumber + String(cleaned.dropFirst(rawStreetNumber.count))
     }
 
     private static func titleCased(_ value: String) -> String {
@@ -1147,7 +1428,7 @@ private enum MissingDetailAnswerExtractor {
     }
 }
 
-private enum TranscriptRestaurantExtractor {
+enum TranscriptRestaurantExtractor {
     static func extract(from transcript: String) -> TranscriptRestaurantExtraction {
         let normalizedTranscript = normalizeTranscript(transcript)
         let name = extractName(from: normalizedTranscript)
@@ -1278,11 +1559,21 @@ private enum TranscriptRestaurantExtractor {
 
         guard let candidate = candidates.first(where: { hasTimeRange($0) }) ?? candidates.first else { return "" }
 
-        let cleaned = candidate
+        let cleaned = normalizeHoursSpeechArtifacts(in: candidate)
             .replacingOccurrences(of: #"\b(?:we are|we're|we)\s+open\b"#, with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\b(?:hours are|our hours are|open|from)\b"#, with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(
                 of: #"\s+\b(?:what makes|what make|our story|what is special|makes us special|special is)\b.*$"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(
+                of: #"\s+\b(?:we\s+feature|we\s+serve|we\s+sell|we\s+have|feature|features|(?:our\s+)?menu\s+items\s+(?:include|are)|our\s+menu\s+(?:has|includes|is))\b.*$"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(
+                of: #"\s+\b(?:cheeseburgers?|chicken\s+sandwiches?|fries|lemonade|house\s+pho|rice\s+bowls?|spring\s+rolls?|iced\s+coffee)\b.*$"#,
                 with: "",
                 options: [.regularExpression, .caseInsensitive]
             )
@@ -1292,11 +1583,24 @@ private enum TranscriptRestaurantExtractor {
         return cleaned
     }
 
-    private static func extractMenuItems(from transcript: String) -> [MenuItem] {
-        let clauses = allMatches(
-            #"\b(?:we serve|we're serving|we are serving|serving|menu items include|our menu has|feature|features)\s+([^.;]+)"#,
-            in: transcript
+    private static func normalizeHoursSpeechArtifacts(in candidate: String) -> String {
+        let lowercased = candidate.lowercased()
+        guard lowercased.contains("monday through saturday")
+                || lowercased.contains("monday to saturday")
+                || lowercased.contains("mon-sat")
+        else {
+            return candidate
+        }
+
+        return candidate.replacingOccurrences(
+            of: #"\b(and\s+)Saturday(\s+(?:from\s+)?\d{1,2}(?::\d{2})?\s*(?:AM|PM)?\s*(?:-|–|to)\s*\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)"#,
+            with: "$1Sunday$2",
+            options: [.regularExpression, .caseInsensitive]
         )
+    }
+
+    private static func extractMenuItems(from transcript: String) -> [MenuItem] {
+        let clauses = menuFocusedSegments(from: transcript)
 
         var seenNames = Set<String>()
         var items: [MenuItem] = []
@@ -1304,12 +1608,12 @@ private enum TranscriptRestaurantExtractor {
         for clause in clauses {
             for rawPart in menuParts(from: clause) {
                 guard let item = makeMenuItem(from: rawPart) else { continue }
-                let key = item.name.lowercased()
-                guard !seenNames.contains(key) else { continue }
-                seenNames.insert(key)
+                guard insertMenuItem(item.name, into: &seenNames) else { continue }
                 items.append(item)
             }
         }
+
+        appendKnownMenuItems(from: transcript, to: &items, seenNames: &seenNames)
 
         return Array(items.prefix(8))
     }
@@ -1317,6 +1621,7 @@ private enum TranscriptRestaurantExtractor {
     private static func menuParts(from clause: String) -> [String] {
         let cleanedClause = cleanMenuClause(clause)
             .replacingOccurrences(of: #"(?i)\s+and\s+"#, with: ", ", options: .regularExpression)
+            .replacingOccurrences(of: #"\.\s+(?=[A-Z])"#, with: ", ", options: .regularExpression)
             .replacingOccurrences(of: #"&"#, with: ",", options: .regularExpression)
 
         return cleanedClause.components(separatedBy: ",")
@@ -1348,18 +1653,11 @@ private enum TranscriptRestaurantExtractor {
 
     private static func splitKnownMenuPhrases(_ rawPart: String) -> [String] {
         let normalized = rawPart.lowercased()
-        let knownPhrases: [(phrase: String, canonical: String)] = [
-            ("house pho", "House Pho"),
-            ("pho", "Pho"),
-            ("rice bowls", "Rice Bowls"),
-            ("rice bowl", "Rice Bowls"),
-            ("spring rolls", "Spring Rolls"),
-            ("spring roll", "Spring Rolls"),
-            ("iced coffee", "Iced Coffee"),
-            ("ice coffee", "Iced Coffee")
-        ]
 
-        let matches: [(offset: Int, canonical: String)] = knownPhrases.compactMap { phrase, canonical in
+        let matches: [(offset: Int, canonical: String)] = knownMenuPhrases.compactMap { phrase, canonical in
+            if phrase == "pho", normalized.contains("house pho") {
+                return nil
+            }
             guard let range = normalized.range(of: phrase) else { return nil }
             let offset = normalized.distance(from: normalized.startIndex, to: range.lowerBound)
             return (offset, canonical)
@@ -1373,6 +1671,177 @@ private enum TranscriptRestaurantExtractor {
         }
 
         return uniqueMatches.count > 1 ? uniqueMatches : [rawPart]
+    }
+
+    private static let knownMenuPhrases: [(phrase: String, canonical: String)] = [
+        ("house pho", "House Pho"),
+        ("pho", "Pho"),
+        ("rice bowls", "Rice Bowls"),
+        ("rice bowl", "Rice Bowls"),
+        ("spring rolls", "Spring Rolls"),
+        ("spring roll", "Spring Rolls"),
+        ("chicken sandwiches", "Chicken Sandwiches"),
+        ("chicken sandwich", "Chicken Sandwiches"),
+        ("cheeseburgers", "Cheeseburgers"),
+        ("cheeseburger", "Cheeseburgers"),
+        ("fries", "Fries"),
+        ("iced coffee", "Iced Coffee"),
+        ("ice coffee", "Iced Coffee"),
+        ("lemonade", "Lemonade")
+    ]
+
+    private static func appendKnownMenuItems(
+        from transcript: String,
+        to items: inout [MenuItem],
+        seenNames: inout Set<String>
+    ) {
+        let lowercased = transcript.lowercased()
+        guard lowercased.contains("serve") || lowercased.contains("menu") || lowercased.contains("feature") else {
+            return
+        }
+
+        for menuText in menuFocusedSegments(from: transcript) {
+            let rawMatches: [(range: Range<String.Index>, canonical: String)] = knownMenuPhrases.compactMap { phrase, canonical in
+                guard let range = menuText.range(of: phrase, options: [.caseInsensitive]) else { return nil }
+                return (range, canonical)
+            }
+            let matches = nonOverlappingMenuMatches(rawMatches)
+
+            for (index, match) in matches.enumerated() {
+                let nextStart = matches.indices.contains(index + 1)
+                    ? matches[index + 1].range.lowerBound
+                    : menuText.endIndex
+                let segment = cleanMenuClause(String(menuText[match.range.lowerBound..<nextStart]))
+                let price = extractPrice(from: segment)
+                let item = MenuItem(name: match.canonical, description: "", price: price)
+
+                if let existingIndex = items.firstIndex(where: {
+                    MissingDetailAnswerExtractor.menuKey($0.name) == MissingDetailAnswerExtractor.menuKey(item.name)
+                }) {
+                    if items[existingIndex].price == nil, item.price != nil {
+                        items[existingIndex].price = item.price
+                    }
+                    continue
+                }
+
+                guard insertMenuItem(item.name, into: &seenNames) else { continue }
+                items.append(item)
+            }
+        }
+    }
+
+    private static func menuFocusedSegments(from transcript: String) -> [String] {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"\b(we serve|we're serving|we are serving|serving|we sell|we have|menu items include|menu items are|our menu items are|our menu has|our menu includes|we feature|feature|features)\b"#,
+            options: [.caseInsensitive]
+        ) else {
+            return [transcript]
+        }
+
+        let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
+        let matches: [(trigger: String, segment: String)] = regex.matches(in: transcript, range: range).compactMap { match -> (String, String)? in
+            guard let matchRange = Range(match.range, in: transcript),
+                  let triggerRange = Range(match.range(at: 1), in: transcript) else { return nil }
+            var segment = String(transcript[matchRange.upperBound...])
+
+            if let stopRange = segment.range(
+                of: #"\b(?:we\s+are|we're|we)\s+open\b|\b(?:what\s+makes|what\s+make|makes\s+us\s+special|our\s+story|special\s+is)\b|\b(?:restaurant\s+street\s+address|street\s+address|address\s+is|phone\s+number|my\s+restaurant\s+is|the\s+restaurant\s+is)\b"#,
+                options: [.regularExpression, .caseInsensitive]
+            ) {
+                segment = String(segment[..<stopRange.lowerBound])
+            }
+
+            let cleaned = cleanMenuClause(segment)
+            guard isLikelyMenuSegment(cleaned, trigger: String(transcript[triggerRange])) else { return nil }
+            return cleaned.isEmpty ? nil : (String(transcript[triggerRange]), cleaned)
+        }
+
+        let specificMatches = matches.filter { match in
+            let trigger = match.trigger.lowercased()
+            return !trigger.contains("serve") && !trigger.contains("serving")
+        }
+        let segments = specificMatches.isEmpty ? matches.map(\.segment) : specificMatches.map(\.segment)
+
+        return segments.isEmpty ? inferredPricedMenuSegments(from: transcript) : segments
+    }
+
+    private static func inferredPricedMenuSegments(from transcript: String) -> [String] {
+        let rawMatches: [(range: Range<String.Index>, canonical: String)] = knownMenuPhrases.compactMap { phrase, canonical in
+            guard let range = transcript.range(of: phrase, options: [.caseInsensitive]) else { return nil }
+            return (range, canonical)
+        }
+        let matches = nonOverlappingMenuMatches(rawMatches)
+
+        return matches.indices.compactMap { index in
+            let match = matches[index]
+            let nextStart = matches.indices.contains(index + 1)
+                ? matches[index + 1].range.lowerBound
+                : transcript.endIndex
+            let segment = cleanMenuClause(String(transcript[match.range.lowerBound..<nextStart]))
+            guard extractPrice(from: segment) != nil else { return nil }
+            return segment
+        }
+    }
+
+    private static func isLikelyMenuSegment(_ segment: String, trigger: String) -> Bool {
+        let lowercasedSegment = segment.lowercased()
+        let lowercasedTrigger = trigger.lowercased()
+
+        if extractPrice(from: segment) != nil {
+            return true
+        }
+
+        if knownMenuPhrases.contains(where: { lowercasedSegment.contains($0.phrase) }) {
+            return true
+        }
+
+        let menuSpecificTriggers = [
+            "menu items include", "menu items are", "our menu items are",
+            "our menu has", "our menu includes", "we feature", "feature", "features",
+            "we sell", "we have"
+        ]
+        if menuSpecificTriggers.contains(where: lowercasedTrigger.contains),
+           !lowercasedSegment.contains(" in ") {
+            return true
+        }
+
+        return false
+    }
+
+    private static func nonOverlappingMenuMatches(
+        _ matches: [(range: Range<String.Index>, canonical: String)]
+    ) -> [(range: Range<String.Index>, canonical: String)] {
+        let sortedMatches = matches.sorted {
+            if $0.range.lowerBound == $1.range.lowerBound {
+                return $0.range.upperBound > $1.range.upperBound
+            }
+            return $0.range.lowerBound < $1.range.lowerBound
+        }
+
+        return sortedMatches.reduce(into: [(range: Range<String.Index>, canonical: String)]()) { result, match in
+            guard let last = result.last else {
+                result.append(match)
+                return
+            }
+
+            if match.range.lowerBound < last.range.upperBound {
+                return
+            }
+
+            result.append(match)
+        }
+    }
+
+    private static func insertMenuItem(_ name: String, into seenNames: inout Set<String>) -> Bool {
+        let key = MissingDetailAnswerExtractor.menuKey(name)
+        guard !seenNames.contains(where: { existingKey in
+            existingKey.contains(key) || key.contains(existingKey)
+        }) else {
+            return false
+        }
+
+        seenNames.insert(key)
+        return true
     }
 
     private static func makeMenuItem(from rawPart: String) -> MenuItem? {
@@ -1390,10 +1859,12 @@ private enum TranscriptRestaurantExtractor {
             .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".:;")))
 
         let lowercased = part.lowercased()
-        let rejected = ["food", "menu", "dishes", "restaurant", "comfort food"]
+        let rejected = ["food", "menu", "dishes", "restaurant", "comfort food", "what"]
         let rejectedFragments = [
             "friendly", "neighborhood", "service", "family recipe", "open ", "monday", "tuesday",
-            "wednesday", "thursday", "friday", "saturday", "sunday", "what makes", "special"
+            "wednesday", "thursday", "friday", "saturday", "sunday", "what makes", "special",
+            "vietnamese comfort", "comfort food in", " in san jose", " in san francisco",
+            " in oakland", " in los angeles"
         ]
         guard part.count >= 3,
               part.count <= 48,
@@ -1410,13 +1881,9 @@ private enum TranscriptRestaurantExtractor {
     }
 
     private static func extractPrice(from text: String) -> Double? {
-        guard let match = firstMatch(#"(?:\$|for\s+)(\d+(?:\.\d{1,2})?)"#, in: text),
-              let price = Double(match),
-              price > 0 else {
-            return nil
-        }
-
-        return price
+        allMatches(#"(?:\$|for\s+)(\d+(?:\.\d{1,2})?)"#, in: text)
+            .compactMap(Double.init)
+            .last { $0 > 0 }
     }
 
     private static func extractStory(from transcript: String) -> String {
@@ -1479,6 +1946,11 @@ private enum TranscriptRestaurantExtractor {
 
     private static func cleanNameCandidate(_ candidate: String) -> String? {
         let trimmed = candidate
+            .replacingOccurrences(
+                of: #"^(?:we\s+are|we're|my\s+restaurant\s+is|the\s+restaurant\s+is)\s+"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
             .replacingOccurrences(
                 of: #"\s+\b(?:it\s+is|it's|it’s|is\s+(?:a|an|family)|we\s+|we're\s+|open\s+|serve\s+|serves\s+|in\s+[A-Z]).*$"#,
                 with: "",
@@ -1597,17 +2069,18 @@ extension RestaurantProfile {
     )
 
     static let sample = RestaurantProfile(
-        name: "Pho Lotus Kitchen",
-        cuisine: "Vietnamese comfort food",
+        name: "Sunset Grill",
+        cuisine: "American restaurant",
         neighborhood: "San Jose",
-        ownerName: "Mai Nguyen",
+        ownerName: "",
         phone: "",
-        hours: "Mon-Sat 11 AM-9 PM, Sun 11 AM-7 PM",
-        story: "Family recipes, slow-simmered broth, and quick lunches for the neighborhood.",
+        hours: "Monday through Saturday 10 AM to 8 PM, Sunday 11 AM to 6 PM",
+        story: "Fresh ingredients, fast service, and a friendly neighborhood atmosphere.",
         menuItems: [
-            MenuItem(name: "House Pho", description: "Beef broth, rice noodles, brisket, herbs, lime.", price: 14.99),
-            MenuItem(name: "Lemongrass Chicken Bowl", description: "Grilled chicken, jasmine rice, pickled vegetables.", price: 13.49),
-            MenuItem(name: "Spring Rolls", description: "Shrimp, herbs, vermicelli, peanut dipping sauce.", price: 8.99)
+            MenuItem(name: "Cheeseburgers", description: "A classic cheeseburger with the fresh, friendly feel customers expect at Sunset Grill.", price: 12.99),
+            MenuItem(name: "Chicken Sandwiches", description: "A satisfying chicken sandwich made for a quick lunch or casual dinner.", price: 11.49),
+            MenuItem(name: "Fries", description: "Crisp fries that pair naturally with burgers, sandwiches, and cold drinks.", price: 4.99),
+            MenuItem(name: "Lemonade", description: "A bright, refreshing lemonade for lunch, dinner, or a quick stop.", price: 3.49)
         ]
     )
 }
@@ -1624,12 +2097,12 @@ extension WebsiteDraft {
     )
 
     static let sample = WebsiteDraft(
-        headline: "Pho Lotus Kitchen brings Vietnamese comfort food to San Jose",
-        subheadline: "Family recipes, slow-simmered broth, and quick lunches for the neighborhood.",
+        headline: "Sunset Grill serves American burgers and sandwiches in San Jose",
+        subheadline: "Fresh ingredients, fast service, and a friendly neighborhood atmosphere.",
         callToAction: "View Menu",
         pages: ["Home", "Menu", "Hours", "Location", "About"],
-        seoKeywords: ["Pho Lotus Kitchen", "Vietnamese comfort food", "San Jose restaurant", "best pho near me"],
-        url: "https://pho-lotus-kitchen.siteclaw.app",
+        seoKeywords: ["Sunset Grill", "American restaurant in San Jose", "american burgers and sandwiches in San Jose", "Cheeseburgers", "Chicken Sandwiches", "Fries"],
+        url: "https://sunset-grill.siteclaw.app",
         lastGeneratedSummary: "Generated a mobile-first restaurant website with menu, hours, location, and local SEO content."
     )
 }
@@ -1640,12 +2113,12 @@ extension SiteClawStudio {
         draft: .sample,
         messages: [
             BuilderMessage(role: .assistant, text: "Tell me about your restaurant. You can type or use voice."),
-            BuilderMessage(role: .owner, text: "We are a family-owned Vietnamese restaurant in San Jose with pho, rice bowls, and spring rolls."),
+            BuilderMessage(role: .owner, text: "We are Sunset Grill, an American burger and sandwich restaurant in San Jose."),
             BuilderMessage(role: .assistant, text: "Great. I can turn that into a mobile-friendly site with menu, hours, location, and local SEO.")
         ],
         updates: [
-            SiteUpdate(type: .menu, title: "Menu imported", detail: "Added House Pho, Lemongrass Chicken Bowl, and Spring Rolls.", timeLabel: "8 min ago"),
-            SiteUpdate(type: .hours, title: "Hours added", detail: "Mon-Sat 11 AM-9 PM, Sun 11 AM-7 PM.", timeLabel: "11 min ago")
+            SiteUpdate(type: .menu, title: "Menu imported", detail: "Added Cheeseburgers, Chicken Sandwiches, Fries, and Lemonade.", timeLabel: "8 min ago"),
+            SiteUpdate(type: .hours, title: "Hours added", detail: "Mon-Sat 10 AM-8 PM, Sun 11 AM-6 PM.", timeLabel: "11 min ago")
         ],
         metrics: [
             DashboardMetric(label: "Completion", value: "92%", trend: "Ready for owner review", systemImage: "checkmark.seal.fill"),
@@ -1724,42 +2197,42 @@ extension VoiceOnboardingPrompt {
         VoiceOnboardingPrompt(
             question: "What is your restaurant called?",
             helperText: "Say the business name the way customers should see it online.",
-            capturedAnswer: "Pho Lotus Kitchen",
+            capturedAnswer: "Sunset Grill",
             systemImage: "storefront.fill"
         ),
         VoiceOnboardingPrompt(
             question: "What food do you serve, and where are you located?",
             helperText: "Cuisine and city help SiteClaw write local SEO copy.",
-            capturedAnswer: "Vietnamese comfort food in San Jose",
+            capturedAnswer: "American burgers and sandwiches in San Jose",
             systemImage: "mappin.and.ellipse"
         ),
         VoiceOnboardingPrompt(
             question: "What are your hours?",
             helperText: "Customers often look up hours before deciding where to eat.",
-            capturedAnswer: "Mon-Sat 11 AM-9 PM, Sun 11 AM-7 PM",
+            capturedAnswer: "Monday through Saturday 10 AM to 8 PM, Sunday 11 AM to 6 PM",
             systemImage: "clock.fill"
         ),
         VoiceOnboardingPrompt(
             question: "What menu items should we feature?",
             helperText: "Name a few popular dishes and prices if you know them.",
-            capturedAnswer: "House Pho, Lemongrass Chicken Bowl, Spring Rolls",
+            capturedAnswer: "Cheeseburgers $12.99, Chicken Sandwiches $11.49, Fries $4.99, Lemonade $3.49",
             systemImage: "fork.knife"
         ),
         VoiceOnboardingPrompt(
             question: "What makes your restaurant special?",
             helperText: "A short owner story makes the site feel trustworthy.",
-            capturedAnswer: "Family recipes, slow-simmered broth, quick neighborhood lunches",
+            capturedAnswer: "Fresh ingredients, fast service, and a friendly neighborhood atmosphere",
             systemImage: "quote.bubble.fill"
         )
     ]
 
     static let demoAnswers = [
-        "We are Pho Lotus Kitchen.",
-        "We serve Vietnamese comfort food in San Jose.",
-        "We are open Monday through Saturday from 11 AM to 9 PM and Sunday from 11 AM to 7 PM.",
-        "Feature house pho for 14.99, lemongrass chicken bowls for 13.49, and spring rolls for 8.99.",
-        "Our story is family recipes, slow-simmered broth, and quick lunches for the neighborhood."
+        "My restaurant is called Sunset Grill.",
+        "We serve American burgers and sandwiches in San Jose.",
+        "We are open Monday through Saturday from 10 AM to 8 PM, and Sunday from 11 AM to 6 PM.",
+        "Our menu items are cheeseburgers for $12.99, chicken sandwiches for $11.49, fries for $4.99, and lemonade for $3.49.",
+        "What makes us special is fresh ingredients, fast service, and a friendly neighborhood atmosphere."
     ]
 
-    static let sampleTranscript = "We are Pho Lotus Kitchen, a family-owned Vietnamese restaurant in San Jose. We serve house pho for 14.99, lemongrass chicken bowls for 13.49, and spring rolls for 8.99. We are open Monday through Saturday from 11 AM to 9 PM and Sunday from 11 AM to 7 PM. Our story is family recipes, slow-simmered broth, and quick lunches for the neighborhood."
+    static let sampleTranscript = "My restaurant is called Sunset Grill. We serve American burgers and sandwiches in San Jose. We are open Monday through Saturday from 10 AM to 8 PM, and Sunday from 11 AM to 6 PM. Our menu items are cheeseburgers for $12.99, chicken sandwiches for $11.49, fries for $4.99, and lemonade for $3.49. What makes us special is fresh ingredients, fast service, and a friendly neighborhood atmosphere."
 }

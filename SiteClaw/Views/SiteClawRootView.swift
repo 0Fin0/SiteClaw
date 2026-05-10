@@ -7,41 +7,50 @@ import SwiftUI
 
 struct SiteClawRootView: View {
     @State private var studio = SiteClawStudio.preview
+    @State private var selectedTab = DemoTab.talk
 
     var body: some View {
-        TabView {
-            TalkToSiteClawView(studio: studio)
+        TabView(selection: $selectedTab) {
+            TalkToSiteClawView(
+                studio: studio,
+                continueToBuild: {
+                    withAnimation(.snappy(duration: 0.3)) {
+                        selectedTab = .build
+                    }
+                }
+            )
                 .tabItem {
                     Label("Talk", systemImage: "waveform.circle.fill")
                 }
+                .tag(DemoTab.talk)
 
-            BuilderView(studio: studio)
-                .tabItem {
-                    Label("Build", systemImage: "wand.and.stars")
+            BuilderView(
+                studio: studio,
+                continueToPreview: {
+                    withAnimation(.snappy(duration: 0.3)) {
+                        selectedTab = .preview
+                    }
                 }
-
-            DashboardView(studio: studio)
+            )
                 .tabItem {
-                    Label("Dashboard", systemImage: "square.grid.2x2.fill")
+                    Label("Build", systemImage: "slider.horizontal.3")
                 }
+                .tag(DemoTab.build)
 
             SitePreviewView(studio: studio)
                 .tabItem {
                     Label("Preview", systemImage: "iphone")
                 }
-
-            RestaurantJSONView(studio: studio)
-                .tabItem {
-                    Label("JSON", systemImage: "curlybraces")
-                }
-
-            QuickUpdatesView(studio: studio)
-                .tabItem {
-                    Label("Updates", systemImage: "mic.fill")
-                }
+                .tag(DemoTab.preview)
         }
-        .tint(SiteClawTheme.coral)
+        .tint(.accentColor)
     }
+}
+
+private enum DemoTab: Hashable {
+    case talk
+    case build
+    case preview
 }
 
 #Preview {

@@ -205,7 +205,7 @@ enum RestaurantJSONExporter {
                     items: items
                 )
             ],
-            notes: "Only owner-provided menu details are included. Add missing prices, dietary details, and availability before publishing."
+            notes: "Menu items and prices come from the owner conversation. Review drafted descriptions, dietary details, and availability before publishing."
         )
     }
 

@@ -10,26 +10,35 @@ struct DashboardView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    StatusPanel(studio: studio)
-                    MetricsGrid(metrics: studio.metrics)
-                    ContentChecklist(studio: studio)
-                    RecentUpdatesList(updates: studio.updates)
-                }
-                .padding(16)
+            DashboardContentView(studio: studio)
+        }
+    }
+}
+
+struct DashboardContentView: View {
+    @Bindable var studio: SiteClawStudio
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                StatusPanel(studio: studio)
+                MetricsGrid(metrics: studio.metrics)
+                ContentChecklist(studio: studio)
+                RecentUpdatesList(updates: studio.updates)
             }
-            .background(SiteClawTheme.background.ignoresSafeArea())
-            .navigationTitle("Dashboard")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        studio.publishDraft()
-                    } label: {
-                        Image(systemName: studio.isPublished ? "checkmark.circle.fill" : "paperplane.fill")
-                    }
-                    .accessibilityLabel(studio.isPublished ? "Published" : "Publish site")
+            .padding(16)
+            .padding(.bottom, SiteClawTheme.tabBarClearance)
+        }
+        .background(SiteClawTheme.background.ignoresSafeArea())
+        .navigationTitle("Dashboard")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    studio.publishDraft()
+                } label: {
+                    Image(systemName: studio.isPublished ? "checkmark.circle.fill" : "paperplane.fill")
                 }
+                .accessibilityLabel(studio.isPublished ? "Published" : "Publish site")
             }
         }
     }

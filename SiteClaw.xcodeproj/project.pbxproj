@@ -6,15 +6,31 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		D6E100002FA600000000000A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D41A0A332FA4148600C0FA33 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D41A0A3A2FA4148600C0FA33;
+			remoteInfo = SiteClaw;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
-		D41A0A3B2FA4148600C0FA33 /* SiteClaw.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SiteClaw.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		D5C1A0002FA5000000000001 /* SiteClaw iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SiteClaw iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D41A0A3B2FA4148600C0FA33 /* SiteClaw.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SiteClaw.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D5C1A0002FA5000000000001 /* SiteClaw iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "SiteClaw iOS.app"; path = SiteClaw.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D6E100002FA6000000000001 /* SiteClawTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SiteClawTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		D41A0A3D2FA4148600C0FA33 /* SiteClaw */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "SiteClaw";
+			path = SiteClaw;
+			sourceTree = "<group>";
+		};
+		D6E100002FA6000000000009 /* SiteClawTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SiteClawTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -34,6 +50,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D6E100002FA6000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -41,6 +64,7 @@
 			isa = PBXGroup;
 			children = (
 				D41A0A3D2FA4148600C0FA33 /* SiteClaw */,
+				D6E100002FA6000000000009 /* SiteClawTests */,
 				D41A0A3C2FA4148600C0FA33 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -49,6 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				D41A0A3B2FA4148600C0FA33 /* SiteClaw.app */,
+				D6E100002FA6000000000001 /* SiteClawTests.xctest */,
 				D5C1A0002FA5000000000001 /* SiteClaw iOS.app */,
 			);
 			name = Products;
@@ -72,10 +97,10 @@
 			fileSystemSynchronizedGroups = (
 				D41A0A3D2FA4148600C0FA33 /* SiteClaw */,
 			);
-			name = "SiteClaw";
+			name = SiteClaw;
 			packageProductDependencies = (
 			);
-			productName = "SiteClaw";
+			productName = SiteClaw;
 			productReference = D41A0A3B2FA4148600C0FA33 /* SiteClaw.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -97,9 +122,32 @@
 			name = "SiteClaw iOS";
 			packageProductDependencies = (
 			);
-			productName = "SiteClaw";
+			productName = SiteClaw;
 			productReference = D5C1A0002FA5000000000001 /* SiteClaw iOS.app */;
 			productType = "com.apple.product-type.application";
+		};
+		D6E100002FA6000000000002 /* SiteClawTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D6E100002FA6000000000008 /* Build configuration list for PBXNativeTarget "SiteClawTests" */;
+			buildPhases = (
+				D6E100002FA6000000000004 /* Sources */,
+				D6E100002FA6000000000003 /* Frameworks */,
+				D6E100002FA6000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D6E100002FA600000000000B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				D6E100002FA6000000000009 /* SiteClawTests */,
+			);
+			name = SiteClawTests;
+			packageProductDependencies = (
+			);
+			productName = SiteClawTests;
+			productReference = D6E100002FA6000000000001 /* SiteClawTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -116,6 +164,10 @@
 					};
 					D5C1A0002FA5000000000002 = {
 						CreatedOnToolsVersion = 26.4;
+					};
+					D6E100002FA6000000000002 = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = D41A0A3A2FA4148600C0FA33;
 					};
 				};
 			};
@@ -134,6 +186,7 @@
 			projectRoot = "";
 			targets = (
 				D41A0A3A2FA4148600C0FA33 /* SiteClaw */,
+				D6E100002FA6000000000002 /* SiteClawTests */,
 				D5C1A0002FA5000000000002 /* SiteClaw iOS */,
 			);
 		};
@@ -148,6 +201,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		D5C1A0002FA5000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D6E100002FA6000000000005 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -171,7 +231,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D6E100002FA6000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D6E100002FA600000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D41A0A3A2FA4148600C0FA33 /* SiteClaw */;
+			targetProxy = D6E100002FA600000000000A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		D41A0A442FA4148700C0FA33 /* Debug */ = {
@@ -226,8 +301,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.4;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -283,8 +358,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.4;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -308,7 +383,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "edu.sfsu.SiteClaw";
+				PRODUCT_BUNDLE_IDENTIFIER = edu.sfsu.SiteClaw;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = macosx;
@@ -335,7 +410,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "edu.sfsu.SiteClaw";
+				PRODUCT_BUNDLE_IDENTIFIER = edu.sfsu.SiteClaw;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = macosx;
@@ -356,10 +431,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SiteClaw uses the microphone to capture restaurant owner voice onboarding.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SiteClaw uses the microphone to capture restaurant owner voice onboarding.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
@@ -368,8 +443,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "edu.sfsu.SiteClaw.iOS";
-				PRODUCT_NAME = "SiteClaw";
+				PRODUCT_BUNDLE_IDENTIFIER = edu.sfsu.SiteClaw.iOS;
+				PRODUCT_NAME = SiteClaw;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -391,10 +466,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SiteClaw uses the microphone to capture restaurant owner voice onboarding.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SiteClaw uses the microphone to capture restaurant owner voice onboarding.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
@@ -403,8 +478,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "edu.sfsu.SiteClaw.iOS";
-				PRODUCT_NAME = "SiteClaw";
+				PRODUCT_BUNDLE_IDENTIFIER = edu.sfsu.SiteClaw.iOS;
+				PRODUCT_NAME = SiteClaw;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -414,6 +489,58 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D6E100002FA6000000000006 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = edu.sfsu.SiteClawTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SiteClaw.app/Contents/MacOS/SiteClaw";
+			};
+			name = Debug;
+		};
+		D6E100002FA6000000000007 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = edu.sfsu.SiteClawTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SiteClaw.app/Contents/MacOS/SiteClaw";
 			};
 			name = Release;
 		};
@@ -443,6 +570,15 @@
 			buildConfigurations = (
 				D5C1A0002FA5000000000006 /* Debug */,
 				D5C1A0002FA5000000000007 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D6E100002FA6000000000008 /* Build configuration list for PBXNativeTarget "SiteClawTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D6E100002FA6000000000006 /* Debug */,
+				D6E100002FA6000000000007 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
