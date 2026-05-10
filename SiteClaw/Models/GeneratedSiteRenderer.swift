@@ -681,17 +681,12 @@ enum GeneratedSiteRenderer {
     }
 
     private static func makeVisitCopy(from data: RestaurantJSON, locationName: String) -> String {
-        let menuNames = data.menu.categories
-            .flatMap(\.items)
-            .map(\.name)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .prefix(3)
+        let menuPhrase = makeVisitMenuPhrase(from: data.menu)
         let location = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
         let story = publicStory(from: data.basics.description)
 
-        if !menuNames.isEmpty, !location.isEmpty {
-            return "Stop by for \(menuNames.joined(separator: ", ")) and a friendly neighborhood meal in \(location)."
+        if !menuPhrase.isEmpty, !location.isEmpty {
+            return "Stop by for \(menuPhrase), and a friendly neighborhood meal in \(location)."
         }
 
         if !story.isEmpty {
@@ -699,6 +694,39 @@ enum GeneratedSiteRenderer {
         }
 
         return "Check the menu, hours, and location before your next visit."
+    }
+
+    private static func makeVisitMenuPhrase(from menu: RestaurantJSONMenu) -> String {
+        menu.categories
+            .flatMap(\.items)
+            .map(\.name)
+            .map(customerMenuLabel)
+            .filter { !$0.isEmpty }
+            .prefix(4)
+            .joined(separator: ", ")
+    }
+
+    nonisolated private static func customerMenuLabel(from name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.lowercased()
+
+        if normalized.contains("cheeseburger") || normalized == "burger" || normalized == "burgers" {
+            return "burgers"
+        }
+
+        if normalized.contains("sandwich") {
+            return "sandwiches"
+        }
+
+        if normalized.contains("fries") {
+            return "fries"
+        }
+
+        if normalized.contains("lemonade") {
+            return "lemonade"
+        }
+
+        return normalized
     }
 
     private static func formatPrice(_ price: Double?) -> String {
