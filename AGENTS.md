@@ -6,7 +6,7 @@ SiteClaw is an iOS-first SwiftUI MVP for ISYS 556. It helps local restaurant own
 
 The MVP is being judged by Apple-adjacent reviewers, so the iOS experience must feel native, polished, accessible, and aligned with Apple's Human Interface Guidelines. Prefer SwiftUI-native controls, SF Symbols, system colors, Dynamic Type-friendly text, clear navigation, and simple task flows.
 
-Last updated checkpoint: May 14, 2026 Pacific, after the local customer-facing cleanup, owner trust, preview polish, and Contact & Visibility declutter passes.
+Last updated checkpoint: May 14, 2026 Pacific, after the SiteClaw AI co-builder / Guided Plus pass, final verification, push to the `SiteClaw_Working` branch, and this agent-notes refresh.
 
 ## Current App Shape
 
@@ -15,6 +15,7 @@ Last updated checkpoint: May 14, 2026 Pacific, after the local customer-facing c
 - The root shell autosaves signed-in demo workspace changes and reloads the saved workspace on app start when possible.
 - The iOS tab bar uses three judge-facing tabs: Talk, Build, Preview, with floating/glass styling from `SiteClawTheme`.
 - `TalkToSiteClawView` is a guided owner walkthrough through five visible questions. The customer-facing action label is `Save Answer`, not `Capture`.
+- Talk now has a `Voice Coach` card. Local deterministic parsing still fills Build fields first; the AI coach runs asynchronously afterward to clean the answer, show confidence/missing details, suggest one optional follow-up, and add website strategy notes.
 - Talk keeps backend readiness and saved answer/transcript review available but visually secondary/collapsed so the first viewport feels like a guided onboarding screen.
 - `BuilderView` is the correction surface, now titled `Website Details`. Users should fix basics, uploaded menu, featured dishes, style, and contact/visibility details here before generating or refreshing the draft.
 - `SitePreviewView` shows owner safety status, fullscreen preview, preview device modes, then a compact Review & Publish link for owner review, local website publishing, static HTML export controls, and proof tools.
@@ -24,17 +25,18 @@ Last updated checkpoint: May 14, 2026 Pacific, after the local customer-facing c
 - Account & Settings is exposed through a gear toolbar action, backed by `AccountSettingsView`. It covers mock account status, plan summary, owner profile, restaurant profile, site/domain placeholders, billing plan placeholders, workspace/privacy, and growth settings.
 - Build sections are collapsible so the demo can scan quickly: Restaurant Basics, Use Your Existing Menu, Featured Dishes, Choose Website Style, Contact & Visibility, and Growth Toolkit.
 - Choose Website Style uses restaurant archetype cards instead of manual color/font controls. The supported V1 archetypes are Neighborhood, Order First, Fine Dining, and Cultural Heritage.
+- Choose Website Style also surfaces `AI Design Decisions`, which summarize voice-coach notes, archetype reasoning, and conversion/contact signals that should influence the generated website.
 - Use Your Existing Menu prioritizes real owner upload/photo actions. Demo Menu is secondary and uses `SiteClaw/Resources/sunset-grill-demo-menu.png`.
 - Featured Dishes supports per-dish images through PhotosPicker/file import. Dish images export as `image_url` data URLs in `restaurant.json` and render on generated menu cards.
 - Contact & Visibility includes customer contact details, catering email, local SEO/profile fields, demo-fill buttons, and a collapsed nested Progress disclosure for visibility checklist details.
-- Conversion/customer action link UI was removed from Build because it felt like busywork. The data/model/rendering support remains deferred for a later iteration.
+- Conversion/customer action link fields are not part of the main Build UI in this pass because they felt like busywork for the demo. The data/model/rendering support remains present; public rendering only emits valid http(s) URLs and the quality audit blocks invalid conversion links when they are present in data.
 - Preview has an `Owner Approval` reassurance card: if not published, it says `Not published yet` and `Nothing goes live until you approve it.`
 - Review & Publish contains `What happens next`, `Get Found on Google`, `Publish or Share`, workspace privacy reassurance, owner settings, publish history, and proof tools.
 - Generated websites should rely on the stronger `Visit Us` section for address/hours. The earlier top Location/Hours/Menu fact strip was removed.
 
 ## May 13-14 Local Work Checkpoint
 
-These changes are local in the current worktree unless/until the user explicitly asks to commit and push. May 13 focused on product/design documentation and UI backlog discovery; May 14 focused on wiring that work into the app.
+These changes were committed and pushed to the `SiteClaw_Working` branch after the user explicitly requested a push. May 13 focused on product/design documentation and UI backlog discovery; May 14 focused on wiring that work into the app, hardening it, and adding the AI co-builder layer.
 
 May 13 product documentation:
 
@@ -50,8 +52,9 @@ May 14 implementation:
 - Root/app shell work added `MockLoginView`, local account state, workspace autosave/load, app/logo assets, and account/settings toolbar access.
 - Talk was cleaned up for customers: active question first, `Save Answer` language, voice controls, compact/collapsible readiness, collapsed saved-answer/transcript review, and `Continue to Build` as the main handoff.
 - Restaurant design archetypes are wired through prompt/data/UI/renderer behavior. Generated drafts and `restaurant.json` include `design_brief`; old/missing data falls back to `neighborhood_utility`.
+- `design_brief` now also carries owner-facing strategy fields: `design_decisions`, `story_opportunities`, and `recommended_modules`.
 - Conversion link fields exist in the model for online ordering, reservations, gift cards, catering, and private dining. Public rendering only uses valid http(s) URLs and falls back to safe actions if URLs are missing or invalid.
-- Conversion/customer action link UI is intentionally hidden/deferred. It should stay out of the customer-facing Build flow and should not add publish-blocking busywork in this MVP pass.
+- Conversion/customer action link UI is intentionally hidden/deferred in the main Build flow. It should not add busywork in this MVP pass, but invalid conversion URLs are publish blockers if data contains them.
 - Build was reordered and renamed for owner trust: Restaurant Basics, Use Your Existing Menu, Featured Dishes, Choose Website Style, Contact & Visibility, Growth Toolkit.
 - Use Your Existing Menu should make `Upload File` and `Use Photo` primary. `Demo Menu` should stay secondary.
 - Build now has a `Fill Demo Visibility` button that populates neutral `example.com` Google/Yelp/social URLs and marks profile/photos/website-link checklist toggles complete.
@@ -63,7 +66,9 @@ May 14 implementation:
 - Owner Story should come only from the final story prompt. It should not include the whole questionnaire.
 - Local cuisine/location parsing handles natural answers such as `Salvadorian and Peruvian food in San Jose` and overwrites stale defaults like `American restaurant`.
 - Backend has `POST /api/extract/profile` for optional AI polish after local parsing. The app must remain useful when this endpoint is offline.
-- AI polish must not invent facts, URLs, prices, addresses, hours, or unsupported menu details.
+- Backend has `POST /api/ai/coach-turn` for the per-answer Visual Voice Coach. The request includes prompt kind, visible question, raw/cleaned answer, captured answers so far, transcript, current restaurant profile, and current design brief. The response includes cleaned answer, safe patch, confidence, missing details, suggested follow-up, archetype hint, design notes, and a status message.
+- AI polish and coach output must not invent facts, URLs, prices, addresses, hours, awards, delivery partners, or unsupported menu details.
+- Site generation receives `site_strategy` from the app. It should treat AI notes as creative-director hints only when grounded in owner-provided facts.
 - Native Preview reads the resolved archetype directly and should visibly change hero tone, CTA priority, section labels, section order, and menu treatment when the owner changes the direction card.
 - Generated HTML and native Preview should stay aligned for archetype CTA behavior, dish images, uploaded menu display, catering email, and visibility links.
 - Generated static sites no longer render the top fact strip after the hero. Address and hours should live in Visit Us, with the Hours nav still anchoring to the Visit Us hours card.
@@ -74,7 +79,7 @@ May 14 implementation:
 - Local brand shell work includes a mock login screen, account/settings sheet, `SiteClawLogo` asset, and app icon asset updates.
 - Backend generation has restaurant archetype prompt/schema instructions and optional profile extraction. The local static-site registry and generated-site serving remain under `Backend/`.
 - Backend local publish stores generated `index.html` and `restaurant.json`, serves `http://localhost:8787/sites/{slug}/`, lists generated sites through `GET /api/sites`, and prunes generated-site folders conservatively.
-- Tests in `SiteClawTests/SiteClawCoreTests.swift` now cover transcript normalization, guided prompt parsing, JSON export additions, uploaded menu assets, dish image data URLs, renderer output, profile extraction encoding/decoding, workspace autosave round trips, visibility progress, quality audit behavior, publish proof, and generated site safety.
+- Tests in `SiteClawTests/SiteClawCoreTests.swift` now cover transcript normalization, guided prompt parsing, JSON export additions, uploaded menu assets, dish image data URLs, renderer output, profile extraction encoding/decoding, Voice Coach request/response behavior, AI failure fallback, suggested follow-ups, strategy export, workspace autosave round trips, visibility progress, quality audit behavior, publish proof, and generated site safety.
 - `Backend/generated-sites/` may contain local generated output for manual proofing. Treat generated output as local demo state unless the user explicitly asks to preserve or publish it.
 
 ## Demo Workflow
@@ -85,15 +90,16 @@ Use this order for demos and testing:
 2. Run the app in Xcode and choose `Continue with Demo` on the mock login screen.
 3. In Talk, answer one visible question at a time.
 4. Wait for the transcript, then tap Save Answer.
-5. After all five answers are captured, Generate Website Draft should use local guided parsing first, then optional backend polish.
-6. Tap Continue to Build or open Build manually.
-7. In Build, confirm Restaurant Basics, Use Your Existing Menu, Featured Dishes, Choose Website Style, and Contact & Visibility.
-8. For the fully decked-out demo, use Demo Menu, Fill Demo Visit Details, and Fill Demo Visibility. Leave Contact & Visibility Progress collapsed unless asked.
-9. Add dish photos through Featured Dishes if needed; PhotosPicker can use the current simulator's local Photos library.
-10. Tap Generate Restaurant Website or Open Preview to refresh/review the final Preview and JSON.
-11. Review Preview, including owner safety status, fullscreen preview, archetype changes, dish images, uploaded full menu, catering email, and visibility links.
-12. Open Preview > Review & Publish to prove the app can publish and open the real generated website.
-13. Tap Open Site. Safari should show the local generated website at `http://localhost:8787/sites/sunset-grill/`.
+5. After each saved answer, the Voice Coach may show cleaned text, confidence, missing details, design notes, and one optional follow-up. If the backend is unavailable, continue; local parsing is the source of reliability.
+6. After all five answers are captured, Generate Website Draft should use local guided parsing first, then optional backend polish and the accumulated `site_strategy`.
+7. Tap Continue to Build or open Build manually.
+8. In Build, confirm Restaurant Basics, Use Your Existing Menu, Featured Dishes, Choose Website Style, AI Design Decisions, and Contact & Visibility.
+9. For the fully decked-out demo, use Demo Menu, Fill Demo Visit Details, Fill Demo Visibility, and Fill Demo Growth. Leave Contact & Visibility Progress collapsed unless asked.
+10. Add dish photos through Featured Dishes if needed; prefer repo-backed demo photos in `SiteClaw/Resources/DemoDishPhotos/` when building portable examples.
+11. Tap Generate Restaurant Website or Open Preview to refresh/review the final Preview and JSON.
+12. Review Preview, including owner safety status, fullscreen preview, archetype changes, AI Design Strategy, dish images, uploaded full menu, catering email, and visibility links.
+13. Open Preview > Review & Publish to prove the app can publish and open the real generated website.
+14. Tap Open Site. Safari should show the local generated website at `http://localhost:8787/sites/sunset-grill/`.
 
 Use Sunset Grill as the reliable demo restaurant:
 
@@ -169,14 +175,14 @@ If a conversation fails or restarts, continue from here:
 - The local app starts at the mock login screen; use Continue with Demo for rehearsals.
 - Do not spend more time chasing obscure Pho/Vietnamese transcription edge cases unless they break the core demo.
 - Dashboard and JSON are proof tools under Preview > Review & Publish, not part of the default walkthrough.
-- Commit `a543500` is pushed to `origin/main` and contains the publish proof: customer-facing static site export, Published Site success with Copy Site Link/Open Again/QR code, backend local generated-sites registry, docs, and regression tests.
-- Current local work after commit `a543500` is broader than website polish: mock login, workspace autosave, account/settings, design tokens, restaurant archetypes, guided voice-to-Build parsing, optional AI profile polish, customer-facing Talk cleanup, collapsible Build sections, primary uploaded-menu flow, featured dish images, uploaded full menu display, deferred conversion/customer action link fields, catering email, demo visibility links, owner-safety Preview, Review & Publish proof flow, and generated-site renderer updates. Do not assume this is committed or pushed.
-- Latest local iOS verification on May 14: XcodeBuildMCP `build_run_sim` for `SiteClaw iOS` on iPhone 17 Pro succeeded after the Contact & Visibility nested-progress change. XcodeBuildMCP `test_sim` still fails before tests run because the `SiteClaw iOS` scheme is not configured for the `test-without-building` action.
-- Earlier May 14 verification also passed for `/Applications/Codex.app/Contents/Resources/node --check Backend/server.mjs`, `git diff --check`, macOS `xcodebuild test -project SiteClaw.xcodeproj -scheme SiteClaw ...`, and iOS simulator build. Re-run before claiming final release readiness because local tests may have shifted with recent copy/UI edits.
+- Commit `a543500` is pushed to `origin/main` and contains the earlier publish proof: customer-facing static site export, Published Site success with Copy Site Link/Open Again/QR code, backend local generated-sites registry, docs, and regression tests.
+- The broader SiteClaw MVP work is committed and pushed on branch `SiteClaw_Working`. That branch includes mock login, workspace autosave, account/settings, design tokens, restaurant archetypes, guided voice-to-Build parsing, optional AI profile polish, Visual Voice Coach / Guided Plus, customer-facing Talk cleanup, collapsible Build sections, primary uploaded-menu flow, featured dish images, uploaded full menu display, deferred conversion/customer action link UI with safe data/rendering support, catering email, demo visibility links, growth toolkit, owner-safety Preview, Review & Publish proof flow, generated-site renderer updates, docs, app assets, and demo resources.
+- Latest verification on May 14 before the `SiteClaw_Working` push passed: `/Applications/Codex.app/Contents/Resources/node --check Backend/server.mjs`, `git diff --check`, backend boot plus `/health`, full macOS `xcodebuild test -project SiteClaw.xcodeproj -scheme SiteClaw ...`, and XcodeBuildMCP `build_run_sim` for `SiteClaw iOS` on iPhone 17 Pro.
+- XcodeBuildMCP `test_sim` previously failed before tests ran because the `SiteClaw iOS` scheme is not configured for the `test-without-building` action. Use simulator build/run for iOS compile verification and macOS tests for unit coverage.
 - Next best polish target is a final visual QA pass in the simulator: Continue with Demo -> Talk -> Build, use Demo Menu / Visit Details / Visibility, add the four dish photos if desired, Generate Restaurant Website, then Preview -> Review & Publish -> Open Site.
 - Do not prioritize full Supabase/OAuth/Stripe before the website creation story feels undeniably publishable. Auth/account/billing is useful later, but it is less memorable for judging than Talk -> real website.
 - The minor first-start audio transcription stall is parked as a known follow-up unless it becomes a repeatable blocker during rehearsal.
-- Technical debug language such as model names, local backend details, and raw JSON should be de-emphasized during the live demo unless asked.
+- Technical debug language such as model names, local backend details, and raw JSON should be de-emphasized during the live demo unless asked. The Appathon story should be: speak answers, AI Coach improves and explains the site strategy, Build confirms details, Preview shows a differentiated customer website, then Review & Publish opens the live local proof.
 
 ## Team Ownership
 
@@ -234,10 +240,11 @@ Branch workflow:
 
 - Omar branch: `omar-voice-ai`
 - Carlo branch: `carlo-auth-account`
+- Current pushed integration/demo branch: `SiteClaw_Working`
 - Before starting a new lane of work: `git pull origin main`
 - Create/switch to the lane branch before committing.
 - Open PRs into `main` so Omar and Carlo can merge cleanly.
-- Current instruction from the user: work stays local unless they explicitly ask to commit or push.
+- Current standing rule: work stays local unless the user explicitly asks to commit or push. The user did explicitly ask to commit/push the current SiteClaw work to `SiteClaw_Working`.
 
 ## Design Rules
 
@@ -251,7 +258,7 @@ Branch workflow:
 - Use placeholders only as prompts, never as fake data. Example: use "Enter street address", not "123 Main Street" unless that value is actually saved.
 - Keep the voice flow resilient: speech-to-text can be wrong, so Build must remain the trustworthy correction path.
 - Restaurant websites should feel atmosphere-first and practical: clear menu, story, location, hours, catering/contact paths, and visibility links without fake links or unnecessary owner setup.
-- Use demo fillers only for local walkthrough clarity. Keep optional customer action/conversion links deferred unless the user explicitly asks to bring them back.
+- Use demo fillers only for local walkthrough clarity. Keep optional customer action/conversion link UI deferred unless the user explicitly asks to bring it back, but maintain the safe URL handling and audit behavior in data/rendering.
 - Put owner reassurance near publish/preview actions. The default mental model should be preview first: nothing goes live until the owner approves.
 
 ## Technical Notes
@@ -302,7 +309,7 @@ For iOS simulator verification, prefer XcodeBuildMCP with the configured default
 - Build includes manual correction fields for basics, menu, and contact details.
 - Build is now `Website Details`; section order is Restaurant Basics, Use Your Existing Menu, Featured Dishes, Choose Website Style, Contact & Visibility, Growth Toolkit.
 - Use Your Existing Menu prioritizes owner upload/photo actions over Demo Menu and adds reassurance copy that featured dishes can be edited after upload.
-- Conversion/customer action links were removed from Build and from owner-facing publish blockers. Keep those fields deferred unless explicitly requested.
+- Conversion/customer action link fields are hidden from the main Build flow, but the underlying model/export/renderer support remains. Keep them deferred unless explicitly requested; invalid conversion URLs should still be blocked by the quality audit when present in data.
 - Contact & Visibility progress is collapsed inside a nested Progress disclosure to reduce clutter and scrolling.
 - UI polish is moving toward Apple HIG: system colors, SF Symbols, native tabs, and less custom dashboard styling.
 - Root navigation now presents Talk, Build, and Preview as the only top-level tabs; Dashboard/JSON moved under Preview > Review & Publish > Proof Tools.
@@ -325,6 +332,8 @@ For iOS simulator verification, prefer XcodeBuildMCP with the configured default
 - Choose Website Style now uses selectable direction cards and no longer shows manual primary color, accent color, font style, or hero button controls in the Build flow.
 - Build by Voice now maps guided answers directly to Restaurant Basics and Featured Dishes; captured cuisine/location, hours, menu, and owner story should overwrite stale demo defaults.
 - Backend `POST /api/extract/profile` is an optional polish pass, not the source of truth for core Build fields.
+- Backend `POST /api/ai/coach-turn` powers the Visual Voice Coach after each saved guided answer. It can clean wording, report confidence/missing details, suggest one follow-up, and contribute grounded design notes, but local parsing must still make Build usable if AI is offline.
+- `site_strategy` / enhanced `design_brief` carries AI-influenced design decisions, story opportunities, and recommended modules into Build, Preview, JSON export, and generated HTML.
 - Featured Dishes supports dish images, and generated `restaurant.json` exports them as `image_url` data URLs.
 - Uploaded full menu preview now uses a larger portrait display and full-screen viewer that fits the menu without horizontal clipping.
 - Contact & Visibility now includes catering email and renders it as a valid `mailto:` Catering Contact on native Preview and generated HTML.
