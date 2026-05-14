@@ -29,7 +29,33 @@ final class SiteClawStudio {
     var isDraftGenerated: Bool
     var monthlyPrice: Int
     var siteExportStatus: String
-    var lastSiteExportedAt: Date?
+    private var lastSiteExportedAtTimestamp: TimeInterval?
+    var lastSiteExportedAt: Date? {
+        get {
+            lastSiteExportedAtTimestamp.map { Date(timeIntervalSince1970: $0) }
+        }
+        set {
+            lastSiteExportedAtTimestamp = newValue?.timeIntervalSince1970
+        }
+    }
+    var accountSettings: SiteClawAccountSettings
+    var workspaceID: String
+    private var workspaceLastSavedAtTimestamp: TimeInterval?
+    var workspaceLastSavedAt: Date? {
+        get {
+            workspaceLastSavedAtTimestamp.map { Date(timeIntervalSince1970: $0) }
+        }
+        set {
+            workspaceLastSavedAtTimestamp = newValue?.timeIntervalSince1970
+        }
+    }
+    var workspaceStatus: String
+    var publishStage: SitePublishStage
+    var publishHistory: [SitePublishHistoryItem]
+    var voiceCoachTurns: [VoiceCoachTurn]
+    var activeSuggestedFollowUp: String
+    var isVoiceCoachWorking: Bool
+    var voiceCoachStatus: String
 
     init(
         restaurant: RestaurantProfile,
@@ -53,7 +79,17 @@ final class SiteClawStudio {
         isDraftGenerated: Bool = true,
         monthlyPrice: Int = 19,
         siteExportStatus: String = "No site export prepared yet.",
-        lastSiteExportedAt: Date? = nil
+        lastSiteExportedAt: Date? = nil,
+        accountSettings: SiteClawAccountSettings = .demo,
+        workspaceID: String = "default",
+        workspaceLastSavedAt: Date? = nil,
+        workspaceStatus: String = "Workspace autosave is ready.",
+        publishStage: SitePublishStage = .preview,
+        publishHistory: [SitePublishHistoryItem] = [],
+        voiceCoachTurns: [VoiceCoachTurn] = [],
+        activeSuggestedFollowUp: String = "",
+        isVoiceCoachWorking: Bool = false,
+        voiceCoachStatus: String = "Save an answer to get AI coaching."
     ) {
         self.restaurant = restaurant
         self.draft = draft
@@ -76,11 +112,23 @@ final class SiteClawStudio {
         self.isDraftGenerated = isDraftGenerated
         self.monthlyPrice = monthlyPrice
         self.siteExportStatus = siteExportStatus
-        self.lastSiteExportedAt = lastSiteExportedAt
+        self.lastSiteExportedAtTimestamp = lastSiteExportedAt?.timeIntervalSince1970
+        self.accountSettings = accountSettings
+        self.workspaceID = workspaceID
+        self.workspaceLastSavedAtTimestamp = workspaceLastSavedAt?.timeIntervalSince1970
+        self.workspaceStatus = workspaceStatus
+        self.publishStage = publishStage
+        self.publishHistory = publishHistory
+        self.voiceCoachTurns = voiceCoachTurns
+        self.activeSuggestedFollowUp = activeSuggestedFollowUp
+        self.isVoiceCoachWorking = isVoiceCoachWorking
+        self.voiceCoachStatus = voiceCoachStatus
     }
 
+    nonisolated deinit {}
+
     var publishStatus: String {
-        isPublished ? "Live" : isDraftGenerated ? "Ready to publish" : "Draft needed"
+        publishStage.title
     }
 
     var completionPercent: Int {
@@ -259,6 +307,302 @@ final class SiteClawStudio {
         return "\(siteExportStatus) Prepared \(lastSiteExportedAt.formatted(date: .omitted, time: .shortened))."
     }
 
+    var workspaceSummary: String {
+        guard let workspaceLastSavedAt else {
+            return workspaceStatus
+        }
+
+        return "Saved \(workspaceLastSavedAt.formatted(date: .abbreviated, time: .shortened)). \(workspaceStatus)"
+    }
+
+    var workspaceAutosaveState: SiteClawWorkspaceAutosaveState {
+        SiteClawWorkspaceAutosaveState(
+            restaurant: restaurant,
+            draft: draft,
+            accountSettings: accountSettings,
+            voicePrompts: voicePrompts,
+            voiceTranscript: voiceTranscript,
+            pendingVoiceAnswer: pendingVoiceAnswer,
+            activeVoicePromptIndex: activeVoicePromptIndex,
+            isPublished: isPublished,
+            isDraftGenerated: isDraftGenerated,
+            monthlyPrice: monthlyPrice,
+            siteExportStatus: siteExportStatus,
+            lastSiteExportedAtTimestamp: lastSiteExportedAtTimestamp,
+            publishStage: publishStage,
+            publishHistory: publishHistory,
+            voiceCoachTurns: voiceCoachTurns,
+            activeSuggestedFollowUp: activeSuggestedFollowUp,
+            voiceCoachStatus: voiceCoachStatus
+        )
+    }
+
+    var voiceCaptureReviewItems: [VoiceCaptureReviewItem] {
+        [
+            VoiceCaptureReviewItem(
+                title: "Restaurant Name",
+                value: restaurant.name,
+                confidence: reviewConfidence(for: restaurant.name, requiredLength: 2),
+                detail: "The public name customers see in the hero, title, and SEO.",
+                systemImage: "storefront.fill"
+            ),
+            VoiceCaptureReviewItem(
+                title: "Cuisine",
+                value: restaurant.cuisine,
+                confidence: reviewConfidence(for: restaurant.cuisine, requiredLength: 4),
+                detail: "Used for local SEO and the restaurant positioning.",
+                systemImage: "fork.knife"
+            ),
+            VoiceCaptureReviewItem(
+                title: "Location",
+                value: restaurant.neighborhood,
+                confidence: reviewConfidence(for: restaurant.neighborhood, requiredLength: 2),
+                detail: "Used for the location cue and local search phrases.",
+                systemImage: "mappin.and.ellipse"
+            ),
+            VoiceCaptureReviewItem(
+                title: "Hours",
+                value: restaurant.hours,
+                confidence: TranscriptRestaurantExtractor.isLikelyHoursAnswer(restaurant.hours) ? 0.86 : reviewConfidence(for: restaurant.hours, requiredLength: 8) * 0.7,
+                detail: "Should include days and time ranges before publish.",
+                systemImage: "clock.fill"
+            ),
+            VoiceCaptureReviewItem(
+                title: "Featured Dishes",
+                value: restaurant.menuItems.isEmpty ? "" : restaurant.menuItems.map { TranscriptRestaurantExtractor.menuLabel(for: $0) }.joined(separator: ", "),
+                confidence: restaurant.menuItems.isEmpty ? 0.2 : restaurant.menuItems.allSatisfy { ($0.price ?? 0) > 0 } ? 0.84 : 0.68,
+                detail: "Menu cards are strongest when names, prices, and descriptions are present.",
+                systemImage: "menucard.fill"
+            ),
+            VoiceCaptureReviewItem(
+                title: "Owner Story",
+                value: restaurant.story,
+                confidence: reviewConfidence(for: restaurant.story, requiredLength: 18),
+                detail: "Short story copy that makes the website feel owned and specific.",
+                systemImage: "text.bubble.fill"
+            )
+        ]
+    }
+
+    var siteQualityAuditItems: [SiteQualityAuditItem] {
+        var items: [SiteQualityAuditItem] = []
+        let name = restaurant.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let menuItems = restaurant.menuItems
+        let invalidConversionLinks = conversionLinkValues.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && safeExternalURL($0.value) == nil }
+        let invalidVisibilityLinks = visibilityLinkValues.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && safeExternalURL($0.value) == nil }
+        let cateringEmail = restaurant.cateringEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let invalidCateringEmail = !cateringEmail.isEmpty && !Self.isValidEmail(cateringEmail)
+        let weakDescriptionCount = menuItems.filter {
+            $0.description.trimmingCharacters(in: .whitespacesAndNewlines).count < 24
+        }.count
+        let missingPriceCount = menuItems.filter { ($0.price ?? 0) <= 0 }.count
+
+        items.append(
+            SiteQualityAuditItem(
+                title: "Restaurant Name",
+                detail: name.isEmpty ? "Add the restaurant name before sharing the site." : "\(name) is ready.",
+                severity: name.isEmpty ? .blocker : .passed,
+                systemImage: "storefront.fill"
+            )
+        )
+
+        items.append(
+            SiteQualityAuditItem(
+                title: "Featured Dishes",
+                detail: menuItems.isEmpty ? "Add at least one dish or upload a menu." : "\(menuItems.count) dish\(menuItems.count == 1 ? "" : "es") ready for review.",
+                severity: menuItems.isEmpty ? .blocker : .passed,
+                systemImage: "fork.knife"
+            )
+        )
+
+        items.append(
+            SiteQualityAuditItem(
+                title: "Menu Prices",
+                detail: missingPriceCount == 0 ? "Visible dish prices are complete." : "\(missingPriceCount) dish\(missingPriceCount == 1 ? "" : "es") still need prices.",
+                severity: missingPriceCount == 0 ? .passed : .warning,
+                systemImage: "tag.fill"
+            )
+        )
+
+        items.append(
+            SiteQualityAuditItem(
+                title: "Dish Descriptions",
+                detail: weakDescriptionCount == 0 ? "Dish descriptions are useful for customers." : "\(weakDescriptionCount) dish description\(weakDescriptionCount == 1 ? "" : "s") look thin.",
+                severity: weakDescriptionCount == 0 ? .passed : .warning,
+                systemImage: "text.bubble.fill"
+            )
+        )
+
+        items.append(
+            SiteQualityAuditItem(
+                title: "Conversion Links",
+                detail: invalidConversionLinks.isEmpty ? "Order, reservation, gift card, and catering links are safe to render." : "Fix invalid conversion links: \(invalidConversionLinks.map(\.label).joined(separator: ", ")).",
+                severity: invalidConversionLinks.isEmpty ? .passed : .blocker,
+                systemImage: "link.badge.plus"
+            )
+        )
+
+        items.append(
+            SiteQualityAuditItem(
+                title: "Visibility Links",
+                detail: invalidVisibilityLinks.isEmpty ? "Public profile links are safe to render." : "Fix invalid visibility links: \(invalidVisibilityLinks.map(\.label).joined(separator: ", ")).",
+                severity: invalidVisibilityLinks.isEmpty ? .passed : .warning,
+                systemImage: "magnifyingglass"
+            )
+        )
+
+        items.append(
+            SiteQualityAuditItem(
+                title: "Catering Email",
+                detail: invalidCateringEmail ? "Use a valid catering email or leave it blank." : "Catering email is either valid or omitted.",
+                severity: invalidCateringEmail ? .blocker : .passed,
+                systemImage: "envelope.fill"
+            )
+        )
+
+        items.append(
+            SiteQualityAuditItem(
+                title: "Address",
+                detail: restaurant.hasFullAddress ? restaurant.formattedAddress : "Address is optional in the prototype, but improves directions and local SEO.",
+                severity: restaurant.hasFullAddress ? .passed : .warning,
+                systemImage: "mappin.and.ellipse"
+            )
+        )
+
+        items.append(
+            SiteQualityAuditItem(
+                title: "SEO Title",
+                detail: restaurantJSON.seo.title.count >= 12 ? restaurantJSON.seo.title : "Generate a stronger SEO title before final publish.",
+                severity: restaurantJSON.seo.title.count >= 12 ? .passed : .warning,
+                systemImage: "doc.text.magnifyingglass"
+            )
+        )
+
+        return items
+    }
+
+    var siteQualityScore: Int {
+        let items = siteQualityAuditItems
+        guard !items.isEmpty else { return 0 }
+        let weighted = items.reduce(0.0) { total, item in
+            switch item.severity {
+            case .passed: total + 1
+            case .warning: total + 0.45
+            case .blocker: total
+            }
+        }
+        return Int((weighted / Double(items.count) * 100).rounded())
+    }
+
+    var blockingQualityIssues: [SiteQualityAuditItem] {
+        siteQualityAuditItems.filter { $0.severity == .blocker }
+    }
+
+    var canPublishSite: Bool {
+        blockingQualityIssues.isEmpty
+    }
+
+    var recommendedGrowthToolLabels: [String] {
+        let archetype = draft.designBrief.resolvedArchetype
+        var labels: [String] = []
+
+        if archetype == .fastCasualOrderFirst || !restaurant.features.onlineOrderingURL.isEmpty {
+            labels.append("Online ordering spotlight")
+        }
+        if archetype == .fineDiningReservationFirst || !restaurant.features.reservationURL.isEmpty {
+            labels.append("Reservation tracking")
+        }
+        if !restaurant.features.giftCardURL.isEmpty || restaurant.growthTools.giftCardsEnabled {
+            labels.append("Gift card CTA")
+        }
+        if !restaurant.cateringEmail.isEmpty || !restaurant.features.cateringURL.isEmpty {
+            labels.append("Catering lead path")
+        }
+        if restaurant.visibility.googleReviewURL.isEmpty == false || restaurant.growthTools.reviewLinksEnabled {
+            labels.append("Review link")
+        }
+        if labels.isEmpty {
+            labels.append(contentsOf: ["QR menu", "Local SEO checklist"])
+        }
+
+        return labels
+    }
+
+    var latestVoiceCoachTurn: VoiceCoachTurn? {
+        voiceCoachTurns.first
+    }
+
+    var aiDesignDecisionSummary: [String] {
+        var decisions = draft.designBrief.designDecisions
+        decisions.append(contentsOf: voiceCoachTurns.flatMap(\.designNotes))
+        decisions.append(contentsOf: defaultDesignDecisions(for: draft.designBrief.resolvedArchetype))
+
+        if !restaurant.features.onlineOrderingURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            decisions.append("Order-first CTA is supported because the owner provided an online ordering link.")
+        }
+        if !restaurant.features.reservationURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            decisions.append("Reservation CTA is supported because the owner provided a reservation link.")
+        }
+        if !restaurant.cateringEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !restaurant.features.cateringURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            decisions.append("Catering path is highlighted because a catering contact exists.")
+        }
+
+        return cleanedUnique(decisions, limit: 5)
+    }
+
+    @discardableResult
+    func autosaveWorkspace(store: SiteClawWorkspaceStore = .default) -> Bool {
+        do {
+            try store.save(snapshot: SiteClawWorkspaceSnapshot(studio: self), workspaceID: workspaceID)
+            workspaceLastSavedAt = Date()
+            workspaceStatus = "Autosaved local workspace."
+            return true
+        } catch {
+            workspaceStatus = "Autosave failed: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func loadSavedWorkspaceIfAvailable(store: SiteClawWorkspaceStore = .default) -> Bool {
+        do {
+            guard let snapshot = try store.load(workspaceID: workspaceID) else {
+                workspaceStatus = "No saved workspace yet."
+                return false
+            }
+
+            applyWorkspaceSnapshot(snapshot)
+            workspaceLastSavedAt = snapshot.savedAt
+            workspaceStatus = "Loaded saved workspace."
+            return true
+        } catch {
+            workspaceStatus = "Could not load workspace: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func duplicateWorkspace(store: SiteClawWorkspaceStore = .default) -> Bool {
+        let duplicateID = "\(workspaceID)-copy-\(Int(Date().timeIntervalSince1970))"
+        do {
+            try store.save(snapshot: SiteClawWorkspaceSnapshot(studio: self, workspaceID: duplicateID), workspaceID: duplicateID)
+            workspaceStatus = "Duplicated workspace as \(duplicateID)."
+            addUpdate(type: .announcement, title: "Workspace duplicated", detail: duplicateID, timeLabel: "Just now")
+            return true
+        } catch {
+            workspaceStatus = "Duplicate failed: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func resetToDemoWorkspace() {
+        let demo = SiteClawStudio.preview
+        applyWorkspaceSnapshot(SiteClawWorkspaceSnapshot(studio: demo, workspaceID: workspaceID))
+        workspaceLastSavedAt = nil
+        workspaceStatus = "Reset to the bundled demo workspace."
+    }
+
     func generateDraft() {
         polishCapturedProfileForPublishing()
 
@@ -276,20 +620,25 @@ final class SiteClawStudio {
             neighborhood: neighborhood,
             menuItems: restaurant.menuItems
         )
+        let designBrief = enrichedDesignBrief(
+            RestaurantDesignBrief(archetype: RestaurantSiteArchetype.suggested(for: restaurant))
+        )
 
         draft = WebsiteDraft(
             headline: headline,
             subheadline: restaurant.story.isEmpty
                 ? "Fresh food, clear hours, and a menu customers can trust before they visit."
                 : restaurant.story,
-            callToAction: "View Menu",
+            callToAction: designBrief.primaryCTA,
             pages: ["Home", "Menu", "Hours", "Location", "About"],
             seoKeywords: keywords,
+            designBrief: designBrief,
             url: slugURL(for: restaurantName),
             lastGeneratedSummary: "Generated a five-page restaurant site with menu, hours, local SEO, and mobile-ready content."
         )
 
         isDraftGenerated = true
+        publishStage = .preview
         siteExportStatus = "Draft changed. Refresh the site export when ready."
         lastSiteExportedAt = nil
         messages.append(
@@ -328,18 +677,24 @@ final class SiteClawStudio {
             neighborhood: restaurant.neighborhood,
             menuItems: restaurant.menuItems
         )
+        let designBrief = enrichedDesignBrief(
+            (response.draft.designBrief ?? RestaurantDesignBrief(archetype: RestaurantSiteArchetype.suggested(for: restaurant))).normalized
+        )
+        let responseCTA = response.draft.callToAction.trimmingCharacters(in: .whitespacesAndNewlines)
 
         draft = WebsiteDraft(
             headline: headline,
             subheadline: response.draft.subheadline,
-            callToAction: response.draft.callToAction,
+            callToAction: responseCTA.isEmpty ? designBrief.primaryCTA : responseCTA,
             pages: response.draft.pages,
             seoKeywords: response.draft.seoKeywords,
+            designBrief: designBrief,
             url: slugURL(for: restaurantName),
             lastGeneratedSummary: response.draft.lastGeneratedSummary
         )
 
         isDraftGenerated = true
+        publishStage = .preview
         realtimeStatus = "Generated"
         realtimeConnectionDetail = "Website draft is ready for Preview."
         siteExportStatus = "Draft changed. Refresh the site export when ready."
@@ -358,9 +713,39 @@ final class SiteClawStudio {
         realtimeConnectionDetail = "SiteClaw used the offline demo draft so Preview stays ready."
     }
 
+    func applyProfileExtraction(_ response: ProfileExtractionResponse) {
+        applyProfilePatch(response.restaurantPatch)
+
+        if let suggestedArchetype = response.suggestedArchetype {
+            draft.designBrief = enrichedDesignBrief(RestaurantDesignBrief(archetype: suggestedArchetype))
+            draft.callToAction = suggestedArchetype.defaultPrimaryCTA
+        }
+
+        polishCapturedProfileForPublishing()
+        realtimeStatus = "Polished"
+        realtimeConnectionDetail = response.reply.isEmpty
+            ? "SiteClaw polished the saved restaurant profile."
+            : response.reply
+        siteExportStatus = "Restaurant details changed. Refresh the site export when ready."
+        lastSiteExportedAt = nil
+    }
+
     func publishDraft() {
+        guard canPublishSite else {
+            siteExportStatus = "Fix \(blockingQualityIssues.count) publish blocker\(blockingQualityIssues.count == 1 ? "" : "s") before publishing."
+            publishStage = .needsRepublish
+            return
+        }
+
         isPublished = true
+        publishStage = .published
         prepareSiteExport()
+        appendPublishHistory(
+            stage: .published,
+            title: "Site published",
+            detail: "\(restaurant.name) is live at \(draft.url)",
+            url: draft.url
+        )
         addUpdate(
             type: .publish,
             title: "Site published",
@@ -372,7 +757,16 @@ final class SiteClawStudio {
     func prepareSiteExport() {
         let export = siteExport
         lastSiteExportedAt = Date()
+        if publishStage == .draft || publishStage == .needsRepublish {
+            publishStage = .preview
+        }
         siteExportStatus = "\(export.defaultFilename).html is ready to save or share."
+        appendPublishHistory(
+            stage: .preview,
+            title: "Preview export prepared",
+            detail: "Generated \(export.sizeLabel) of HTML from restaurant.json.",
+            url: draft.url
+        )
         addUpdate(
             type: .publish,
             title: "Static site export prepared",
@@ -403,11 +797,218 @@ final class SiteClawStudio {
         addUpdate(type: type, title: "Quick update prepared", detail: trimmed, timeLabel: "Just now")
     }
 
+    @discardableResult
+    func applyUploadedMenuAsset(_ asset: UploadedMenuAsset) -> UploadedMenuExtractionResult {
+        let extraction = restaurant.applyUploadedMenuAsset(asset)
+
+        if extraction.didExtractItems {
+            siteExportStatus = "Uploaded menu imported. Refresh the site export when ready."
+        } else {
+            siteExportStatus = "Uploaded menu changed. Refresh the site export when ready."
+        }
+
+        lastSiteExportedAt = nil
+        addUpdate(
+            type: .menu,
+            title: "Menu file uploaded",
+            detail: extraction.statusMessage,
+            timeLabel: "Just now"
+        )
+
+        return extraction
+    }
+
+    func removeUploadedMenuAsset() {
+        guard let uploadedMenu = restaurant.uploadedMenu else { return }
+
+        restaurant.uploadedMenu = nil
+        siteExportStatus = "Uploaded menu removed. Refresh the site export when ready."
+        lastSiteExportedAt = nil
+        addUpdate(
+            type: .menu,
+            title: "Menu file removed",
+            detail: "\(uploadedMenu.filename) was removed from the generated website.",
+            timeLabel: "Just now"
+        )
+    }
+
+    func fillDemoVisitDetails() {
+        restaurant.streetAddress = "1234 Sunset Avenue"
+        restaurant.neighborhood = "San Jose"
+        restaurant.state = "CA"
+        restaurant.postalCode = "95112"
+        restaurant.phone = "(408) 555-0147"
+        restaurant.cateringEmail = "catering@example.com"
+        markSiteNeedsRefresh("Demo visit details added. Refresh the site export when ready.")
+        addUpdate(
+            type: .announcement,
+            title: "Demo visit details added",
+            detail: "Filled Sunset Grill address, phone, and catering email for the local walkthrough.",
+            timeLabel: "Just now"
+        )
+    }
+
+    func fillDemoConversionLinks() {
+        restaurant.features = .sunsetGrillDemo
+        markSiteNeedsRefresh("Demo conversion links added. Refresh the site export when ready.")
+        addUpdate(
+            type: .announcement,
+            title: "Demo conversion links added",
+            detail: "Filled order, reservation, gift card, catering, and private dining demo links.",
+            timeLabel: "Just now"
+        )
+    }
+
+    func fillDemoVisibilityDetails() {
+        restaurant.visibility = .sunsetGrillDemo
+        restaurant.growthTools = .fullyLoadedDemo
+        markSiteNeedsRefresh("Demo visibility details added. Refresh the site export when ready.")
+        addUpdate(
+            type: .announcement,
+            title: "Demo visibility details added",
+            detail: "Filled Google, Yelp, Instagram, Facebook, and local profile readiness checks.",
+            timeLabel: "Just now"
+        )
+    }
+
+    func fillDemoGrowthTools() {
+        restaurant.growthTools = .fullyLoadedDemo
+        markSiteNeedsRefresh("Demo growth tools added. Refresh the site export when ready.")
+        addUpdate(
+            type: .announcement,
+            title: "Demo growth tools added",
+            detail: "Enabled specials, events, catering leads, gift cards, review links, QR menu, newsletter, and analytics.",
+            timeLabel: "Just now"
+        )
+    }
+
+    func beginVoiceCoachTurn(for request: VoiceCoachRequest) {
+        isVoiceCoachWorking = true
+        voiceCoachStatus = "AI coach is reviewing the saved answer."
+        activeSuggestedFollowUp = ""
+        realtimeStatus = "Coaching"
+        realtimeConnectionDetail = "SiteClaw is checking confidence, missing details, and design direction."
+    }
+
+    func applyVoiceCoachResponse(_ response: VoiceCoachResponse, for request: VoiceCoachRequest) {
+        isVoiceCoachWorking = false
+        voiceCoachStatus = response.statusMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "AI coach updated the site strategy."
+            : response.statusMessage
+
+        applyProfilePatch(response.restaurantPatch)
+
+        let cleanedAnswer = response.cleanedAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+        let turn = VoiceCoachTurn(
+            promptKind: VoicePromptKind(rawValue: request.promptKind) ?? .custom,
+            question: request.question,
+            rawAnswer: request.rawAnswer,
+            cleanedAnswer: cleanedAnswer.isEmpty ? request.cleanedAnswer : cleanedAnswer,
+            confidence: response.confidence,
+            missingDetails: cleanedUnique(response.missingDetails, limit: 4),
+            suggestedFollowUp: response.suggestedFollowUp.trimmingCharacters(in: .whitespacesAndNewlines),
+            archetypeHint: response.archetypeHint,
+            designNotes: cleanedUnique(response.designNotes, limit: 4),
+            statusMessage: voiceCoachStatus
+        )
+
+        voiceCoachTurns.removeAll { existing in
+            existing.promptKind == turn.promptKind
+                && existing.rawAnswer.caseInsensitiveCompare(turn.rawAnswer) == .orderedSame
+        }
+        voiceCoachTurns.insert(turn, at: 0)
+        if voiceCoachTurns.count > 10 {
+            voiceCoachTurns = Array(voiceCoachTurns.prefix(10))
+        }
+
+        activeSuggestedFollowUp = turn.suggestedFollowUp
+        if let archetype = response.archetypeHint {
+            draft.designBrief = enrichedDesignBrief(
+                RestaurantDesignBrief(
+                    archetype: archetype,
+                    designDecisions: turn.designNotes,
+                    storyOpportunities: turn.missingDetails,
+                    recommendedModules: recommendedGrowthToolLabels
+                )
+            )
+            draft.callToAction = draft.designBrief.primaryCTA
+        } else {
+            draft.designBrief = enrichedDesignBrief(draft.designBrief)
+        }
+
+        markSiteNeedsRefresh("AI coach updated the website strategy. Refresh the site export when ready.")
+        realtimeStatus = response.confidence == .low ? "Review Needed" : "Coached"
+        realtimeConnectionDetail = voiceCoachStatus
+        addUpdate(
+            type: .announcement,
+            title: "AI coach reviewed answer",
+            detail: turn.statusMessage,
+            timeLabel: "Just now"
+        )
+    }
+
+    func failVoiceCoachTurn(_ error: Error, for _: VoiceCoachRequest) {
+        isVoiceCoachWorking = false
+        activeSuggestedFollowUp = ""
+        voiceCoachStatus = "AI coach unavailable. Local capture is still saved."
+        realtimeStatus = "Captured"
+        realtimeConnectionDetail = "Local parsing is saved. AI coach can retry when the backend is available."
+        messages.append(
+            BuilderMessage(
+                role: .assistant,
+                text: "The AI coach could not run yet: \(error.localizedDescription)"
+            )
+        )
+    }
+
+    @discardableResult
+    func applyVoiceCoachFollowUpAnswer(_ answer: String) -> VoiceCoachRequest? {
+        let normalizedAnswer = VoiceTranscriptNormalizer.normalize(answer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let question = activeSuggestedFollowUp.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAnswer.isEmpty, !question.isEmpty else { return nil }
+
+        appendTranscriptAnswer(normalizedAnswer)
+        _ = applyVoiceTranscriptToProfile()
+        activeSuggestedFollowUp = ""
+        realtimeStatus = "Follow-up Saved"
+        realtimeConnectionDetail = "Saved the follow-up and refreshed the restaurant profile."
+
+        let prompt = VoiceOnboardingPrompt(
+            question: question,
+            helperText: "AI coach follow-up",
+            capturedAnswer: normalizedAnswer,
+            systemImage: "sparkles",
+            promptKind: .custom
+        )
+        return VoiceCoachRequest(
+            studio: self,
+            prompt: prompt,
+            rawAnswer: normalizedAnswer,
+            cleanedAnswer: normalizedAnswer
+        )
+    }
+
+    func markSiteNeedsRefresh(_ status: String = "Website details changed. Refresh the site export when ready.") {
+        siteExportStatus = status
+        lastSiteExportedAt = nil
+        publishStage = isPublished ? .needsRepublish : .draft
+    }
+
+    func selectBillingPlan(_ plan: SiteClawBillingPlan) {
+        accountSettings.billingPlan = plan.displayName
+        monthlyPrice = plan.price
+    }
+
     func loadVoiceExample() {
         restaurant = RestaurantProfile.sample
         voiceTranscript = VoiceOnboardingPrompt.sampleTranscript
         pendingVoiceAnswer = ""
         voicePrompts = VoiceOnboardingPrompt.filledSamples
+        voiceCoachTurns = []
+        activeSuggestedFollowUp = ""
+        isVoiceCoachWorking = false
+        voiceCoachStatus = "Demo answers loaded. Save or edit an answer to run AI coaching."
         activeVoicePromptIndex = voicePrompts.count - 1
         realtimeStatus = "Captured"
         realtimeConnectionDetail = "Loaded the guided demo transcript and prepared the restaurant details."
@@ -452,7 +1053,7 @@ final class SiteClawStudio {
             messages.append(
                 BuilderMessage(
                     role: .assistant,
-                    text: "Answer the visible question, pause, then tap Capture when the transcript matches that question."
+                    text: "Answer the visible question, pause, then tap Save Answer when the transcript matches that question."
                 )
             )
         }
@@ -462,7 +1063,7 @@ final class SiteClawStudio {
         realtimeAudioLevel = 0
         realtimeStatus = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Ready" : "Captured"
         realtimeConnectionDetail = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "Recording stopped before text was captured."
+            ? "Recording stopped before text was saved."
             : "Recording stopped. Generate a website draft when you are ready."
     }
 
@@ -537,7 +1138,7 @@ final class SiteClawStudio {
             }
             realtimeAssistantReplyDraft = ""
             realtimeStatus = "Listening"
-            realtimeConnectionDetail = "SiteClaw reply captured as text. Audio playback comes next."
+            realtimeConnectionDetail = "SiteClaw reply saved as text. Audio playback comes next."
         case .responseCompleted:
             if !realtimeAssistantReplyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 messages.append(BuilderMessage(role: .assistant, text: realtimeAssistantReplyDraft))
@@ -587,12 +1188,14 @@ final class SiteClawStudio {
         )
     }
 
-    func captureCurrentVoicePrompt() {
-        guard voicePrompts.indices.contains(activeVoicePromptIndex) else { return }
+    @discardableResult
+    func captureCurrentVoicePrompt() -> VoiceCoachRequest? {
+        guard voicePrompts.indices.contains(activeVoicePromptIndex) else { return nil }
 
         voiceTranscript = VoiceTranscriptNormalizer.normalize(voiceTranscript)
         pendingVoiceAnswer = VoiceTranscriptNormalizer.normalize(pendingVoiceAnswer)
         let currentPrompt = voicePrompts[activeVoicePromptIndex]
+        let currentIndex = activeVoicePromptIndex
         let answerSource = currentAnswerSource
 
         if let missingDetailKind = currentPrompt.missingDetailKind {
@@ -600,40 +1203,185 @@ final class SiteClawStudio {
             guard applyMissingDetailAnswer(answer, kind: missingDetailKind) else {
                 realtimeStatus = "Needs Detail"
                 realtimeConnectionDetail = "That answer did not include the detail SiteClaw needs yet."
-                return
+                return nil
             }
 
             voicePrompts[activeVoicePromptIndex].capturedAnswer = answer
             pendingVoiceAnswer = ""
             realtimeStatus = missingDetails.isEmpty ? "Ready to Publish" : "Captured"
             realtimeConnectionDetail = nextMissingDetailMessage
-            return
+            return VoiceCoachRequest(studio: self, prompt: currentPrompt, rawAnswer: answerSource, cleanedAnswer: answer)
         }
 
-        let extraction = TranscriptRestaurantExtractor.extract(from: answerSource)
-        let extractedAnswer = extraction.promptAnswers[activeVoicePromptIndex]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackAnswer = answerSource.trimmingCharacters(in: .whitespacesAndNewlines)
-        let answer = extractedAnswer.isEmpty ? fallbackAnswer : extractedAnswer
-
-        guard !answer.isEmpty else {
+        guard let answer = applyGuidedVoicePromptAnswer(
+            fallbackAnswer,
+            prompt: currentPrompt,
+            index: activeVoicePromptIndex
+        ) else {
             realtimeStatus = "Needs Answer"
-            realtimeConnectionDetail = "Speak or type an answer before capturing this prompt. Use Demo when you want sample data."
-            return
+            realtimeConnectionDetail = "Speak or type an answer before saving this prompt. Use Demo when you want sample data."
+            return nil
         }
 
-        restaurant = mergeWithExistingProfile(extraction.profile)
-        voicePrompts[activeVoicePromptIndex].capturedAnswer = answer
+        voicePrompts[currentIndex].capturedAnswer = answer
         pendingVoiceAnswer = ""
 
         if activeVoicePromptIndex < voicePrompts.count - 1 {
             activeVoicePromptIndex += 1
             realtimeStatus = "Listening"
-            realtimeConnectionDetail = "Captured that answer. Read the next question, then speak one answer and tap Capture."
+            realtimeConnectionDetail = "Saved that answer. Read the next question, then speak one answer and tap Save Answer."
         } else {
             realtimeStatus = "Captured"
-            realtimeConnectionDetail = "All guided answers are captured. Generate the website draft when ready."
+            realtimeConnectionDetail = "All guided answers are saved. Generate the website draft when ready."
         }
+
+        return VoiceCoachRequest(studio: self, prompt: currentPrompt, rawAnswer: answerSource, cleanedAnswer: answer)
+    }
+
+    @discardableResult
+    func applyEditedVoicePromptAnswer() -> VoiceCoachRequest? {
+        applyEditedVoicePromptAnswer(at: activeVoicePromptIndex)
+    }
+
+    @discardableResult
+    func applyEditedVoicePromptAnswer(at index: Int) -> VoiceCoachRequest? {
+        guard voicePrompts.indices.contains(index) else { return nil }
+
+        let rawAnswer = voicePrompts[index].capturedAnswer
+        let normalizedAnswer = VoiceTranscriptNormalizer.normalize(rawAnswer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAnswer.isEmpty else {
+            realtimeStatus = "Needs Answer"
+            realtimeConnectionDetail = "Add an answer before applying this edit."
+            return nil
+        }
+
+        if let missingDetailKind = voicePrompts[index].missingDetailKind {
+            guard applyMissingDetailAnswer(normalizedAnswer, kind: missingDetailKind) else {
+                realtimeStatus = "Needs Detail"
+                realtimeConnectionDetail = "That edit did not include the detail SiteClaw needs yet."
+                return nil
+            }
+            voicePrompts[index].capturedAnswer = normalizedAnswer
+            realtimeStatus = "Updated"
+            realtimeConnectionDetail = "Updated that saved answer."
+            return VoiceCoachRequest(studio: self, prompt: voicePrompts[index], rawAnswer: rawAnswer, cleanedAnswer: normalizedAnswer)
+        }
+
+        guard let capturedAnswer = applyGuidedVoicePromptAnswer(
+            normalizedAnswer,
+            prompt: voicePrompts[index],
+            index: index
+        ) else {
+            return nil
+        }
+
+        voicePrompts[index].capturedAnswer = capturedAnswer
+        siteExportStatus = "Restaurant details changed. Refresh the site export when ready."
+        lastSiteExportedAt = nil
+        realtimeStatus = "Updated"
+        realtimeConnectionDetail = "Updated that saved answer."
+        return VoiceCoachRequest(studio: self, prompt: voicePrompts[index], rawAnswer: rawAnswer, cleanedAnswer: capturedAnswer)
+    }
+
+    @discardableResult
+    private func applyGuidedVoicePromptAnswer(
+        _ rawAnswer: String,
+        prompt: VoiceOnboardingPrompt,
+        index: Int
+    ) -> String? {
+        let normalizedAnswer = VoiceTranscriptNormalizer.normalize(rawAnswer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAnswer.isEmpty else { return nil }
+
+        let extraction = TranscriptRestaurantExtractor.extract(from: normalizedAnswer)
+        let extractedAnswer = extraction.promptAnswers.indices.contains(index)
+            ? extraction.promptAnswers[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        var capturedAnswer = VoicePromptAnswerInterpreter.interpret(
+            promptKind: prompt.promptKind,
+            promptIndex: index,
+            extractedAnswer: extractedAnswer,
+            fallbackAnswer: normalizedAnswer
+        )
+
+        switch prompt.promptKind {
+        case .restaurantName:
+            let name = capturedAnswer.isEmpty
+                ? extraction.profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                : capturedAnswer
+            guard !name.isEmpty else {
+                realtimeStatus = "Needs Name"
+                realtimeConnectionDetail = "That answer did not include a restaurant name yet."
+                return nil
+            }
+            restaurant.name = name
+            capturedAnswer = name
+
+        case .cuisineLocation:
+            let cuisineLocation = TranscriptRestaurantExtractor.cuisineLocation(from: normalizedAnswer)
+            let cuisine = cuisineLocation.cuisine.trimmingCharacters(in: .whitespacesAndNewlines)
+            let city = cuisineLocation.city.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !cuisine.isEmpty {
+                restaurant.cuisine = cuisine
+            } else if !capturedAnswer.isEmpty {
+                restaurant.cuisine = capturedAnswer
+            }
+
+            if !city.isEmpty {
+                restaurant.neighborhood = city
+            }
+
+            if cuisine.isEmpty && city.isEmpty {
+                realtimeStatus = "Needs Cuisine"
+                realtimeConnectionDetail = "That answer did not include cuisine or location yet."
+                return nil
+            }
+
+            capturedAnswer = [restaurant.cuisine, restaurant.neighborhood.isEmpty ? "" : "in \(restaurant.neighborhood)"]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: " ")
+
+        case .hours:
+            let hours = extraction.profile.hours.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? normalizedAnswer
+                : extraction.profile.hours
+            guard TranscriptRestaurantExtractor.isLikelyHoursAnswer(hours)
+                    || TranscriptRestaurantExtractor.isLikelyHoursAnswer(normalizedAnswer) else {
+                realtimeStatus = "Needs Hours"
+                realtimeConnectionDetail = "That answer did not include operating hours yet. Say the days and times before saving this step."
+                return nil
+            }
+            restaurant.hours = hours
+            capturedAnswer = hours
+
+        case .featuredDishes:
+            if !extraction.profile.menuItems.isEmpty {
+                restaurant.menuItems = mergeMenuItems(extracted: extraction.profile.menuItems, existing: restaurant.menuItems)
+                capturedAnswer = restaurant.menuItems.map { TranscriptRestaurantExtractor.menuLabel(for: $0) }.joined(separator: ", ")
+            } else {
+                capturedAnswer = normalizedAnswer
+            }
+
+        case .ownerStory:
+            let story = VoicePromptAnswerInterpreter.cleanStoryAnswer(capturedAnswer.isEmpty ? normalizedAnswer : capturedAnswer)
+            guard !story.isEmpty else {
+                realtimeStatus = "Needs Story"
+                realtimeConnectionDetail = "That answer did not include a usable owner story yet."
+                return nil
+            }
+            restaurant.story = story
+            capturedAnswer = story
+
+        case .custom:
+            capturedAnswer = capturedAnswer.isEmpty ? normalizedAnswer : capturedAnswer
+        }
+
+        siteExportStatus = "Restaurant details changed. Refresh the site export when ready."
+        lastSiteExportedAt = nil
+        return capturedAnswer.isEmpty ? normalizedAnswer : capturedAnswer
     }
 
     func previousVoicePrompt() {
@@ -643,7 +1391,7 @@ final class SiteClawStudio {
     func focusNextMissingDetail() {
         guard let detail = missingDetails.first else {
             realtimeStatus = "Ready to Publish"
-            realtimeConnectionDetail = "All tracked owner details are captured."
+            realtimeConnectionDetail = "All tracked owner details are saved."
             return
         }
 
@@ -679,28 +1427,54 @@ final class SiteClawStudio {
         realtimeAudioLevel = 0
         realtimeStreamedAudioBytes = 0
         realtimeAssistantReplyDraft = ""
+        voiceCoachTurns = []
+        activeSuggestedFollowUp = ""
+        isVoiceCoachWorking = false
+        voiceCoachStatus = "Save an answer to get AI coaching."
         activeVoicePromptIndex = 0
     }
 
     @discardableResult
     func applyVoiceTranscriptToProfile() -> Bool {
         let trimmedTranscript = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTranscript.isEmpty else {
+        let capturedGuidedAnswers = voicePrompts.enumerated().filter { _, prompt in
+            prompt.missingDetailKind == nil
+                && prompt.promptKind != .custom
+                && !prompt.capturedAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        guard !trimmedTranscript.isEmpty || !capturedGuidedAnswers.isEmpty else {
             realtimeStatus = "Needs Transcript"
             realtimeConnectionDetail = "Record or type the restaurant details before generating a draft."
             return false
         }
 
-        voiceTranscript = VoiceTranscriptNormalizer.normalize(trimmedTranscript)
+        if !trimmedTranscript.isEmpty {
+            voiceTranscript = VoiceTranscriptNormalizer.normalize(trimmedTranscript)
+        } else {
+            voiceTranscript = capturedGuidedAnswers
+                .map { $0.element.capturedAnswer.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .joined(separator: " ")
+        }
+
         let extraction = TranscriptRestaurantExtractor.extract(from: voiceTranscript)
         restaurant = mergeWithExistingProfile(extraction.profile)
+
+        for (index, prompt) in capturedGuidedAnswers {
+            _ = applyGuidedVoicePromptAnswer(prompt.capturedAnswer, prompt: prompt, index: index)
+        }
+
         polishCapturedProfileForPublishing()
-        voicePrompts = TranscriptRestaurantExtractor.makePrompts(from: extraction.promptAnswers)
+
+        if capturedGuidedAnswers.isEmpty {
+            voicePrompts = TranscriptRestaurantExtractor.makePrompts(from: extraction.promptAnswers)
+        }
+
         activeVoicePromptIndex = voicePrompts.firstIndex { $0.capturedAnswer.isEmpty }
             ?? max(voicePrompts.count - 1, 0)
         realtimeStatus = "Captured"
         realtimeConnectionDetail = missingDetails.isEmpty
-            ? "Transcript processed and all tracked owner details are captured."
+            ? "Transcript processed and all tracked owner details are saved."
             : "Transcript processed. \(missingDetails.count) detail\(missingDetails.count == 1 ? "" : "s") still need owner input."
         siteExportStatus = "Restaurant details changed. Refresh the site export when ready."
         lastSiteExportedAt = nil
@@ -747,7 +1521,7 @@ final class SiteClawStudio {
         messages.append(BuilderMessage(role: .owner, text: normalized))
 
         realtimeStatus = "Heard Answer"
-        realtimeConnectionDetail = "Transcript is ready for the visible question. Tap Capture when it looks right."
+        realtimeConnectionDetail = "Transcript is ready for the visible question. Tap Save Answer when it looks right."
     }
 
     private var currentAnswerSource: String {
@@ -801,10 +1575,10 @@ final class SiteClawStudio {
 
     private var nextMissingDetailMessage: String {
         guard let next = missingDetails.first else {
-            return "All tracked owner details are captured. Generate or refresh the website draft when you are ready."
+            return "All tracked owner details are saved. Generate or refresh the website draft when you are ready."
         }
 
-        return "Captured that detail. Next missing detail: \(next.title)."
+        return "Saved that detail. Next missing detail: \(next.title)."
     }
 
     private func mergeWithExistingProfile(_ profile: RestaurantProfile) -> RestaurantProfile {
@@ -839,6 +1613,9 @@ final class SiteClawStudio {
         }
 
         merged.menuItems = mergeMenuItems(extracted: merged.menuItems, existing: restaurant.menuItems)
+        merged.uploadedMenu = merged.uploadedMenu ?? restaurant.uploadedMenu
+        merged.branding = restaurant.branding
+        merged.features = restaurant.features
         return merged
     }
 
@@ -857,8 +1634,29 @@ final class SiteClawStudio {
                 description: extractedItem.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? existingItem.description
                     : extractedItem.description,
-                price: extractedItem.price ?? existingItem.price
+                price: extractedItem.price ?? existingItem.price,
+                image: extractedItem.image ?? existingItem.image
             )
+        }
+    }
+
+    private func applyInterpretedPromptAnswer(_ answer: String, at index: Int) {
+        let cleanedAnswer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedAnswer.isEmpty else { return }
+
+        switch index {
+        case 0:
+            restaurant.name = cleanedAnswer
+        case 2:
+            if restaurant.hours.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                restaurant.hours = cleanedAnswer
+            }
+        case 4:
+            if restaurant.story.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                restaurant.story = cleanedAnswer
+            }
+        default:
+            break
         }
     }
 
@@ -870,13 +1668,13 @@ final class SiteClawStudio {
 
         for index in restaurant.menuItems.indices {
             let description = restaurant.menuItems[index].description.trimmingCharacters(in: .whitespacesAndNewlines)
-            let polishedDescription = defaultMenuDescription(
+            let polishedDescription = MenuDescriptionPolisher.defaultDescription(
                 for: restaurant.menuItems[index].name,
                 cuisine: restaurant.cuisine,
                 restaurantName: restaurant.name
             )
 
-            if description.isEmpty || shouldReplaceGeneratedMenuDescription(description, for: restaurant.menuItems[index].name) {
+            if description.isEmpty || MenuDescriptionPolisher.shouldReplaceGeneratedDescription(description, for: restaurant.menuItems[index].name) {
                 restaurant.menuItems[index].description = polishedDescription
             }
         }
@@ -1000,66 +1798,184 @@ final class SiteClawStudio {
         }
     }
 
-    private func defaultMenuDescription(for itemName: String, cuisine: String, restaurantName: String) -> String {
-        let name = itemName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = MissingDetailAnswerExtractor.menuKey(name)
-        let restaurant = restaurantName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let place = restaurant.isEmpty ? "the menu" : "\(restaurant)'s menu"
-        let restaurantLabel = restaurant.isEmpty ? "the restaurant" : restaurant
-
-        if key.contains("cheeseburger") {
-            return "A classic cheeseburger with the fresh, friendly feel customers expect at \(restaurantLabel)."
-        }
-
-        if key.contains("chicken") && key.contains("sandwich") {
-            return "A satisfying chicken sandwich made for a quick lunch or casual dinner."
-        }
-
-        if key == "fries" || key == "frie" || key.contains("fries") || key.contains("frie") {
-            return "Crisp fries that pair naturally with burgers, sandwiches, and cold drinks."
-        }
-
-        if key.contains("lemonade") {
-            return "A bright, refreshing lemonade for lunch, dinner, or a quick stop."
-        }
-
-        if key.contains("pho") {
-            return "A comforting bowl built around slow-simmered broth and fresh herbs."
-        }
-
-        if key.contains("rice bowl") {
-            return "A hearty rice bowl with fresh toppings and a simple, satisfying finish."
-        }
-
-        if key.contains("spring roll") {
-            return "Fresh spring rolls made for a light start or shareable side."
-        }
-
-        let cuisineLabel = cuisine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if cuisineLabel.isEmpty {
-            return "A customer favorite from \(place)."
-        }
-
-        return "A customer favorite from the \(cuisineLabel) lineup at \(restaurantLabel)."
+    private func reviewConfidence(for value: String, requiredLength: Int) -> Double {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0.15 }
+        if trimmed.count >= requiredLength { return 0.82 }
+        return 0.58
     }
 
-    private func shouldReplaceGeneratedMenuDescription(_ description: String, for itemName: String) -> Bool {
-        let key = MissingDetailAnswerExtractor.menuKey(itemName)
-        let lowercasedDescription = description.lowercased()
-        let isKnownPolishedItem = key.contains("cheeseburger")
-            || (key.contains("chicken") && key.contains("sandwich"))
-            || key.contains("fries")
-            || key.contains("frie")
-            || key.contains("lemonade")
-            || key.contains("pho")
-            || key.contains("rice bowl")
-            || key.contains("spring roll")
+    private var conversionLinkValues: [(label: String, value: String)] {
+        [
+            ("Online Ordering", restaurant.features.onlineOrderingURL),
+            ("Reservations", restaurant.features.reservationURL),
+            ("Gift Cards", restaurant.features.giftCardURL),
+            ("Catering", restaurant.features.cateringURL),
+            ("Private Dining", restaurant.features.privateDiningURL)
+        ]
+    }
 
-        guard isKnownPolishedItem else { return false }
+    private var visibilityLinkValues: [(label: String, value: String)] {
+        [
+            ("Google Business Profile", restaurant.visibility.googleBusinessProfileURL),
+            ("Google Review", restaurant.visibility.googleReviewURL),
+            ("Yelp", restaurant.visibility.yelpBusinessURL),
+            ("Instagram", restaurant.visibility.instagramURL),
+            ("Facebook", restaurant.visibility.facebookURL)
+        ]
+    }
 
-        return lowercasedDescription.contains("description not captured")
-            || lowercasedDescription.contains("customer favorite from the")
-            || lowercasedDescription.contains("american restaurant lineup")
+    private func safeExternalURL(_ value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              url.host?.isEmpty == false else {
+            return nil
+        }
+
+        return url
+    }
+
+    private static func isValidEmail(_ value: String) -> Bool {
+        value.range(
+            of: #"^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func applyProfilePatch(_ patch: ProfileRestaurantPatch) {
+        if !patch.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            restaurant.name = patch.name
+        }
+        if !patch.cuisine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            restaurant.cuisine = patch.cuisine
+        }
+        if !patch.neighborhood.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            restaurant.neighborhood = patch.neighborhood
+        }
+        if !patch.hours.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            restaurant.hours = patch.hours
+        }
+        if !patch.story.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            restaurant.story = VoicePromptAnswerInterpreter.cleanStoryAnswer(patch.story)
+        }
+
+        let extractedItems = patch.menuItems
+            .filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map {
+                MenuItem(
+                    name: $0.name,
+                    description: $0.description,
+                    price: $0.price
+                )
+            }
+        if !extractedItems.isEmpty {
+            restaurant.menuItems = mergeMenuItems(extracted: extractedItems, existing: restaurant.menuItems)
+        }
+    }
+
+    private func enrichedDesignBrief(_ brief: RestaurantDesignBrief) -> RestaurantDesignBrief {
+        let archetype = brief.resolvedArchetype
+        return RestaurantDesignBrief(
+            archetype: archetype,
+            primaryCTA: brief.primaryCTA,
+            secondaryCTAs: brief.secondaryCTAs,
+            siteSections: brief.siteSections,
+            menuPresentation: brief.menuPresentation,
+            visualDirection: brief.visualDirection,
+            designDecisions: cleanedUnique(
+                brief.designDecisions
+                    + voiceCoachTurns.flatMap(\.designNotes)
+                    + defaultDesignDecisions(for: archetype),
+                limit: 5
+            ),
+            storyOpportunities: cleanedUnique(
+                brief.storyOpportunities + voiceCoachTurns.flatMap(\.missingDetails),
+                limit: 5
+            ),
+            recommendedModules: cleanedUnique(
+                brief.recommendedModules + recommendedGrowthToolLabels,
+                limit: 5
+            )
+        )
+    }
+
+    private func defaultDesignDecisions(for archetype: RestaurantSiteArchetype) -> [String] {
+        switch archetype {
+        case .neighborhoodUtility:
+            return ["Neighborhood utility layout keeps menu, hours, and visit details easy to scan."]
+        case .fastCasualOrderFirst:
+            return ["Order-first layout leads with best sellers and fast customer action."]
+        case .fineDiningReservationFirst:
+            return ["Reservation-first layout uses a calmer flow for a more premium dining experience."]
+        case .culturalHeritage:
+            return ["Heritage layout gives story and signature dishes more weight before the visit details."]
+        }
+    }
+
+    private func cleanedUnique(_ values: [String], limit: Int) -> [String] {
+        var result: [String] = []
+        for value in values {
+            let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleaned.isEmpty,
+                  !result.contains(where: { $0.caseInsensitiveCompare(cleaned) == .orderedSame })
+            else { continue }
+            result.append(cleaned)
+            if result.count >= limit { break }
+        }
+        return result
+    }
+
+    private func appendPublishHistory(stage: SitePublishStage, title: String, detail: String, url: String) {
+        publishHistory.insert(
+            SitePublishHistoryItem(
+                stage: stage,
+                title: title,
+                detail: detail,
+                url: url,
+                timestamp: Date()
+            ),
+            at: 0
+        )
+
+        if publishHistory.count > 12 {
+            publishHistory = Array(publishHistory.prefix(12))
+        }
+    }
+
+    func recordLocalPublish(_ response: LocalSitePublishResponse) {
+        isPublished = true
+        publishStage = .published
+        siteExportStatus = "Published local preview at \(response.url)."
+        appendPublishHistory(
+            stage: .published,
+            title: "Local site published",
+            detail: "\(response.slug) exported for browser review.",
+            url: response.url
+        )
+    }
+
+    private func applyWorkspaceSnapshot(_ snapshot: SiteClawWorkspaceSnapshot) {
+        restaurant = snapshot.restaurant.makeRestaurantProfile()
+        draft = snapshot.draft.makeWebsiteDraft()
+        accountSettings = snapshot.accountSettings.makeAccountSettings()
+        voicePrompts = snapshot.voicePrompts.map { $0.makeVoicePrompt() }
+        voiceTranscript = snapshot.voiceTranscript
+        pendingVoiceAnswer = snapshot.pendingVoiceAnswer
+        activeVoicePromptIndex = min(max(snapshot.activeVoicePromptIndex, 0), max(voicePrompts.count - 1, 0))
+        isPublished = snapshot.isPublished
+        isDraftGenerated = snapshot.isDraftGenerated
+        monthlyPrice = snapshot.monthlyPrice
+        siteExportStatus = snapshot.siteExportStatus
+        lastSiteExportedAt = snapshot.lastSiteExportedAt
+        publishStage = snapshot.publishStage
+        publishHistory = snapshot.publishHistory
+        voiceCoachTurns = snapshot.voiceCoachTurns
+        activeSuggestedFollowUp = snapshot.activeSuggestedFollowUp
+        voiceCoachStatus = snapshot.voiceCoachStatus
+        isVoiceCoachWorking = false
+        workspaceID = snapshot.workspaceID
     }
 
     private func addUpdate(type: SiteUpdate.UpdateType, title: String, detail: String, timeLabel: String) {
@@ -1087,9 +2003,456 @@ final class SiteClawStudio {
 
 }
 
+struct SiteClawWorkspaceAutosaveState: Hashable {
+    var restaurant: RestaurantProfile
+    var draft: WebsiteDraft
+    var accountSettings: SiteClawAccountSettings
+    var voicePrompts: [VoiceOnboardingPrompt]
+    var voiceTranscript: String
+    var pendingVoiceAnswer: String
+    var activeVoicePromptIndex: Int
+    var isPublished: Bool
+    var isDraftGenerated: Bool
+    var monthlyPrice: Int
+    var siteExportStatus: String
+    var lastSiteExportedAtTimestamp: TimeInterval?
+    var publishStage: SitePublishStage
+    var publishHistory: [SitePublishHistoryItem]
+    var voiceCoachTurns: [VoiceCoachTurn]
+    var activeSuggestedFollowUp: String
+    var voiceCoachStatus: String
+}
+
+struct SiteClawWorkspaceStore {
+    var rootDirectory: URL
+
+    static var `default`: SiteClawWorkspaceStore {
+        let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return SiteClawWorkspaceStore(rootDirectory: applicationSupport.appendingPathComponent("SiteClaw/Workspaces", isDirectory: true))
+    }
+
+    func save(snapshot: SiteClawWorkspaceSnapshot, workspaceID: String) throws {
+        let directory = workspaceDirectory(for: workspaceID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(snapshot)
+        try data.write(to: manifestURL(for: workspaceID), options: [.atomic])
+    }
+
+    func load(workspaceID: String) throws -> SiteClawWorkspaceSnapshot? {
+        let url = manifestURL(for: workspaceID)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let data = try Data(contentsOf: url)
+        return try decoder.decode(SiteClawWorkspaceSnapshot.self, from: data)
+    }
+
+    func manifestURL(for workspaceID: String) -> URL {
+        workspaceDirectory(for: workspaceID).appendingPathComponent("siteclaw-workspace.json")
+    }
+
+    func workspaceDirectory(for workspaceID: String) -> URL {
+        rootDirectory.appendingPathComponent(Self.safeWorkspaceID(workspaceID), isDirectory: true)
+    }
+
+    private static func safeWorkspaceID(_ value: String) -> String {
+        let slug = value
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        return slug.isEmpty ? "default" : slug
+    }
+}
+
+struct SiteClawWorkspaceSnapshot: Codable, Hashable {
+    var schemaVersion: Int = 1
+    var workspaceID: String
+    var savedAt: Date
+    var restaurant: RestaurantProfileSnapshot
+    var draft: WebsiteDraftSnapshot
+    var accountSettings: SiteClawAccountSettingsSnapshot
+    var voicePrompts: [VoicePromptSnapshot]
+    var voiceTranscript: String
+    var pendingVoiceAnswer: String
+    var activeVoicePromptIndex: Int
+    var isPublished: Bool
+    var isDraftGenerated: Bool
+    var monthlyPrice: Int
+    var siteExportStatus: String
+    var lastSiteExportedAt: Date?
+    var publishStage: SitePublishStage
+    var publishHistory: [SitePublishHistoryItem]
+    var voiceCoachTurns: [VoiceCoachTurn]
+    var activeSuggestedFollowUp: String
+    var voiceCoachStatus: String
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case workspaceID
+        case savedAt
+        case restaurant
+        case draft
+        case accountSettings
+        case voicePrompts
+        case voiceTranscript
+        case pendingVoiceAnswer
+        case activeVoicePromptIndex
+        case isPublished
+        case isDraftGenerated
+        case monthlyPrice
+        case siteExportStatus
+        case lastSiteExportedAt
+        case publishStage
+        case publishHistory
+        case voiceCoachTurns
+        case activeSuggestedFollowUp
+        case voiceCoachStatus
+    }
+
+    init(studio: SiteClawStudio, workspaceID: String? = nil) {
+        self.workspaceID = workspaceID ?? studio.workspaceID
+        savedAt = Date()
+        restaurant = RestaurantProfileSnapshot(profile: studio.restaurant)
+        draft = WebsiteDraftSnapshot(draft: studio.draft)
+        accountSettings = SiteClawAccountSettingsSnapshot(settings: studio.accountSettings)
+        voicePrompts = studio.voicePrompts.map { VoicePromptSnapshot(prompt: $0) }
+        voiceTranscript = studio.voiceTranscript
+        pendingVoiceAnswer = studio.pendingVoiceAnswer
+        activeVoicePromptIndex = studio.activeVoicePromptIndex
+        isPublished = studio.isPublished
+        isDraftGenerated = studio.isDraftGenerated
+        monthlyPrice = studio.monthlyPrice
+        siteExportStatus = studio.siteExportStatus
+        lastSiteExportedAt = studio.lastSiteExportedAt
+        publishStage = studio.publishStage
+        publishHistory = studio.publishHistory
+        voiceCoachTurns = studio.voiceCoachTurns
+        activeSuggestedFollowUp = studio.activeSuggestedFollowUp
+        voiceCoachStatus = studio.voiceCoachStatus
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        workspaceID = try container.decodeIfPresent(String.self, forKey: .workspaceID) ?? "default"
+        savedAt = try container.decodeIfPresent(Date.self, forKey: .savedAt) ?? Date()
+        restaurant = try container.decode(RestaurantProfileSnapshot.self, forKey: .restaurant)
+        draft = try container.decode(WebsiteDraftSnapshot.self, forKey: .draft)
+        accountSettings = try container.decode(SiteClawAccountSettingsSnapshot.self, forKey: .accountSettings)
+        voicePrompts = try container.decodeIfPresent([VoicePromptSnapshot].self, forKey: .voicePrompts) ?? VoiceOnboardingPrompt.samples.map { VoicePromptSnapshot(prompt: $0) }
+        voiceTranscript = try container.decodeIfPresent(String.self, forKey: .voiceTranscript) ?? ""
+        pendingVoiceAnswer = try container.decodeIfPresent(String.self, forKey: .pendingVoiceAnswer) ?? ""
+        activeVoicePromptIndex = try container.decodeIfPresent(Int.self, forKey: .activeVoicePromptIndex) ?? 0
+        isPublished = try container.decodeIfPresent(Bool.self, forKey: .isPublished) ?? false
+        isDraftGenerated = try container.decodeIfPresent(Bool.self, forKey: .isDraftGenerated) ?? true
+        monthlyPrice = try container.decodeIfPresent(Int.self, forKey: .monthlyPrice) ?? 19
+        siteExportStatus = try container.decodeIfPresent(String.self, forKey: .siteExportStatus) ?? "No site export prepared yet."
+        lastSiteExportedAt = try container.decodeIfPresent(Date.self, forKey: .lastSiteExportedAt)
+        publishStage = try container.decodeIfPresent(SitePublishStage.self, forKey: .publishStage) ?? .preview
+        publishHistory = try container.decodeIfPresent([SitePublishHistoryItem].self, forKey: .publishHistory) ?? []
+        voiceCoachTurns = try container.decodeIfPresent([VoiceCoachTurn].self, forKey: .voiceCoachTurns) ?? []
+        activeSuggestedFollowUp = try container.decodeIfPresent(String.self, forKey: .activeSuggestedFollowUp) ?? ""
+        voiceCoachStatus = try container.decodeIfPresent(String.self, forKey: .voiceCoachStatus) ?? "Save an answer to get AI coaching."
+    }
+}
+
+struct RestaurantProfileSnapshot: Codable, Hashable {
+    var name: String
+    var cuisine: String
+    var neighborhood: String
+    var streetAddress: String
+    var state: String
+    var postalCode: String
+    var ownerName: String
+    var phone: String
+    var cateringEmail: String
+    var hours: String
+    var story: String
+    var menuItems: [MenuItemSnapshot]
+    var uploadedMenu: UploadedMenuAssetSnapshot?
+    var branding: SiteBrandingSettingsSnapshot
+    var visibility: RestaurantVisibilitySettings
+    var features: RestaurantSiteFeatures
+    var growthTools: RestaurantGrowthTools
+
+    init(profile: RestaurantProfile) {
+        name = profile.name
+        cuisine = profile.cuisine
+        neighborhood = profile.neighborhood
+        streetAddress = profile.streetAddress
+        state = profile.state
+        postalCode = profile.postalCode
+        ownerName = profile.ownerName
+        phone = profile.phone
+        cateringEmail = profile.cateringEmail
+        hours = profile.hours
+        story = profile.story
+        menuItems = profile.menuItems.map { MenuItemSnapshot(item: $0) }
+        uploadedMenu = profile.uploadedMenu.map { UploadedMenuAssetSnapshot(asset: $0) }
+        branding = SiteBrandingSettingsSnapshot(settings: profile.branding)
+        visibility = profile.visibility
+        features = profile.features
+        growthTools = profile.growthTools
+    }
+
+    func makeRestaurantProfile() -> RestaurantProfile {
+        RestaurantProfile(
+            name: name,
+            cuisine: cuisine,
+            neighborhood: neighborhood,
+            streetAddress: streetAddress,
+            state: state,
+            postalCode: postalCode,
+            ownerName: ownerName,
+            phone: phone,
+            cateringEmail: cateringEmail,
+            hours: hours,
+            story: story,
+            menuItems: menuItems.map { $0.makeMenuItem() },
+            uploadedMenu: uploadedMenu?.makeUploadedMenuAsset(),
+            branding: branding.makeBrandingSettings(),
+            visibility: visibility,
+            features: features,
+            growthTools: growthTools
+        )
+    }
+}
+
+struct MenuItemSnapshot: Codable, Hashable {
+    var name: String
+    var description: String
+    var price: Double?
+    var image: MenuItemImageAssetSnapshot?
+
+    init(item: MenuItem) {
+        name = item.name
+        description = item.description
+        price = item.price
+        image = item.image.map { MenuItemImageAssetSnapshot(asset: $0) }
+    }
+
+    func makeMenuItem() -> MenuItem {
+        MenuItem(
+            name: name,
+            description: description,
+            price: price,
+            image: image?.makeImageAsset()
+        )
+    }
+}
+
+struct MenuItemImageAssetSnapshot: Codable, Hashable {
+    var filename: String
+    var mediaType: String
+    var dataURL: String
+    var byteCount: Int
+    var portableAssetName: String
+
+    init(asset: MenuItemImageAsset) {
+        filename = asset.filename
+        mediaType = asset.mediaType
+        dataURL = asset.dataURL
+        byteCount = asset.byteCount
+        portableAssetName = asset.portableAssetName
+    }
+
+    func makeImageAsset() -> MenuItemImageAsset {
+        MenuItemImageAsset(
+            filename: filename,
+            mediaType: mediaType,
+            dataURL: dataURL,
+            byteCount: byteCount
+        )
+    }
+}
+
+struct UploadedMenuAssetSnapshot: Codable, Hashable {
+    var filename: String
+    var mediaType: String
+    var kind: String
+    var dataURL: String
+    var byteCount: Int
+    var portableAssetName: String
+
+    init(asset: UploadedMenuAsset) {
+        filename = asset.filename
+        mediaType = asset.mediaType
+        kind = asset.kind.rawValue
+        dataURL = asset.dataURL
+        byteCount = asset.byteCount
+        portableAssetName = asset.portableAssetName
+    }
+
+    func makeUploadedMenuAsset() -> UploadedMenuAsset {
+        UploadedMenuAsset(
+            filename: filename,
+            mediaType: mediaType,
+            kind: UploadedMenuAssetKind(rawValue: kind) ?? .image,
+            dataURL: dataURL,
+            byteCount: byteCount
+        )
+    }
+}
+
+struct SiteBrandingSettingsSnapshot: Codable, Hashable {
+    var primaryColorHex: String
+    var accentColorHex: String
+    var fontStyle: String
+
+    init(settings: SiteBrandingSettings) {
+        primaryColorHex = settings.primaryColorHex
+        accentColorHex = settings.accentColorHex
+        fontStyle = settings.fontStyle
+    }
+
+    func makeBrandingSettings() -> SiteBrandingSettings {
+        SiteBrandingSettings(
+            primaryColorHex: primaryColorHex,
+            accentColorHex: accentColorHex,
+            fontStyle: fontStyle
+        )
+    }
+}
+
+struct WebsiteDraftSnapshot: Codable, Hashable {
+    var headline: String
+    var subheadline: String
+    var callToAction: String
+    var pages: [String]
+    var seoKeywords: [String]
+    var designBrief: RestaurantDesignBrief
+    var url: String
+    var lastGeneratedSummary: String
+
+    init(draft: WebsiteDraft) {
+        headline = draft.headline
+        subheadline = draft.subheadline
+        callToAction = draft.callToAction
+        pages = draft.pages
+        seoKeywords = draft.seoKeywords
+        designBrief = draft.designBrief
+        url = draft.url
+        lastGeneratedSummary = draft.lastGeneratedSummary
+    }
+
+    func makeWebsiteDraft() -> WebsiteDraft {
+        WebsiteDraft(
+            headline: headline,
+            subheadline: subheadline,
+            callToAction: callToAction,
+            pages: pages,
+            seoKeywords: seoKeywords,
+            designBrief: designBrief,
+            url: url,
+            lastGeneratedSummary: lastGeneratedSummary
+        )
+    }
+}
+
+struct SiteClawAccountSettingsSnapshot: Codable, Hashable {
+    var ownerName: String
+    var email: String
+    var siteSubdomain: String
+    var customDomain: String
+    var billingPlan: String
+    var isSignedIn: Bool
+    var appearancePreference: SiteClawAppearancePreference
+    var dataRetentionNote: String
+
+    enum CodingKeys: String, CodingKey {
+        case ownerName
+        case email
+        case siteSubdomain
+        case customDomain
+        case billingPlan
+        case isSignedIn
+        case appearancePreference
+        case dataRetentionNote
+    }
+
+    init(settings: SiteClawAccountSettings) {
+        ownerName = settings.ownerName
+        email = settings.email
+        siteSubdomain = settings.siteSubdomain
+        customDomain = settings.customDomain
+        billingPlan = settings.billingPlan
+        isSignedIn = settings.isSignedIn
+        appearancePreference = settings.appearancePreference
+        dataRetentionNote = settings.dataRetentionNote
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ownerName = try container.decodeIfPresent(String.self, forKey: .ownerName) ?? ""
+        email = try container.decodeIfPresent(String.self, forKey: .email) ?? ""
+        siteSubdomain = try container.decodeIfPresent(String.self, forKey: .siteSubdomain) ?? ""
+        customDomain = try container.decodeIfPresent(String.self, forKey: .customDomain) ?? ""
+        billingPlan = try container.decodeIfPresent(String.self, forKey: .billingPlan) ?? SiteClawBillingPlan.starter.displayName
+        isSignedIn = try container.decodeIfPresent(Bool.self, forKey: .isSignedIn) ?? true
+        appearancePreference = try container.decodeIfPresent(SiteClawAppearancePreference.self, forKey: .appearancePreference) ?? .system
+        dataRetentionNote = try container.decodeIfPresent(String.self, forKey: .dataRetentionNote) ?? "Local prototype data stays on this Mac unless you export or publish it."
+    }
+
+    func makeAccountSettings() -> SiteClawAccountSettings {
+        SiteClawAccountSettings(
+            ownerName: ownerName,
+            email: email,
+            siteSubdomain: siteSubdomain,
+            customDomain: customDomain,
+            billingPlan: billingPlan,
+            isSignedIn: isSignedIn,
+            appearancePreference: appearancePreference,
+            dataRetentionNote: dataRetentionNote
+        )
+    }
+}
+
+struct VoicePromptSnapshot: Codable, Hashable {
+    var question: String
+    var helperText: String
+    var capturedAnswer: String
+    var systemImage: String
+    var promptKind: String
+    var missingDetailKind: String?
+
+    init(prompt: VoiceOnboardingPrompt) {
+        question = prompt.question
+        helperText = prompt.helperText
+        capturedAnswer = prompt.capturedAnswer
+        systemImage = prompt.systemImage
+        promptKind = prompt.promptKind.rawValue
+        missingDetailKind = prompt.missingDetailKind?.rawValue
+    }
+
+    func makeVoicePrompt() -> VoiceOnboardingPrompt {
+        VoiceOnboardingPrompt(
+            question: question,
+            helperText: helperText,
+            capturedAnswer: capturedAnswer,
+            systemImage: systemImage,
+            promptKind: VoicePromptKind(rawValue: promptKind) ?? .custom,
+            missingDetailKind: missingDetailKind.flatMap { MissingDetailKind(rawValue: $0) }
+        )
+    }
+}
+
 struct TranscriptRestaurantExtraction {
     var profile: RestaurantProfile
     var promptAnswers: [String]
+}
+
+struct CuisineLocationExtraction: Hashable {
+    var cuisine: String = ""
+    var city: String = ""
 }
 
 enum VoiceTranscriptNormalizer {
@@ -1125,10 +2488,33 @@ enum VoiceTranscriptNormalizer {
             )
         }
 
-        return normalized
+        return cleanOwnerSpeech(normalized)
             .replacingOccurrences(of: #"\b(\d{1,2})\s+(?:forty|fourty)[-\s]?(?:nine|9)\b"#, with: "$1.49", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\b(\d{1,2})\s+eighty[-\s]?(?:nine|9)\b"#, with: "$1.99", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\b(\d{1,2})\s+ninety[-\s]?(?:nine|9)\b"#, with: "$1.99", options: [.regularExpression, .caseInsensitive])
+    }
+
+    private static func cleanOwnerSpeech(_ transcript: String) -> String {
+        var cleaned = transcript
+            .replacingOccurrences(of: #"\b(?:um+|uh+|uhm+|umm+|erm|hmm)\b[,\s]*"#, with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\b(?:let'?s say|you know|i mean)\b[,\s]*"#, with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\s+([,.;:])"#, with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var previous = ""
+        while previous != cleaned {
+            previous = cleaned
+            cleaned = cleaned
+                .replacingOccurrences(
+                    of: #"^(?:so|okay|ok|well|like|basically|actually|just|kind of|sort of)[,\s]+"#,
+                    with: "",
+                    options: [.regularExpression, .caseInsensitive]
+                )
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return cleaned
     }
 
     private static let numberWords = [
@@ -1155,6 +2541,104 @@ enum VoiceTranscriptNormalizer {
     ]
 }
 
+enum VoicePromptAnswerInterpreter {
+    static func interpret(
+        promptKind: VoicePromptKind,
+        promptIndex: Int,
+        extractedAnswer: String,
+        fallbackAnswer: String
+    ) -> String {
+        let extracted = VoiceTranscriptNormalizer.normalize(extractedAnswer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = VoiceTranscriptNormalizer.normalize(fallbackAnswer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch promptKind {
+        case .restaurantName:
+            return restaurantName(from: extracted, fallback: fallback)
+        case .cuisineLocation:
+            return extracted.isEmpty ? cuisineAndLocation(from: fallback) : extracted
+        case .hours, .featuredDishes:
+            return extracted.isEmpty ? fallback : extracted
+        case .ownerStory:
+            return cleanStoryAnswer(extracted.isEmpty ? fallback : extracted)
+        case .custom:
+            return interpret(promptIndex: promptIndex, extractedAnswer: extracted, fallbackAnswer: fallback)
+        }
+    }
+
+    static func interpret(
+        promptIndex: Int,
+        extractedAnswer: String,
+        fallbackAnswer: String
+    ) -> String {
+        let extracted = VoiceTranscriptNormalizer.normalize(extractedAnswer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = VoiceTranscriptNormalizer.normalize(fallbackAnswer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch promptIndex {
+        case 0:
+            return restaurantName(from: extracted, fallback: fallback)
+        case 1:
+            return extracted.isEmpty ? cuisineAndLocation(from: fallback) : extracted
+        case 2:
+            return extracted.isEmpty ? fallback : extracted
+        case 3:
+            return extracted.isEmpty ? fallback : extracted
+        case 4:
+            return story(from: extracted, fallback: fallback)
+        default:
+            return extracted.isEmpty ? fallback : extracted
+        }
+    }
+
+    private static func restaurantName(from extracted: String, fallback: String) -> String {
+        for candidate in [extracted, fallback] where !candidate.isEmpty {
+            if let name = MissingDetailAnswerExtractor.restaurantName(from: candidate) {
+                return name
+            }
+        }
+
+        return ""
+    }
+
+    private static func cuisineAndLocation(from fallback: String) -> String {
+        let extraction = TranscriptRestaurantExtractor.extract(from: fallback)
+        let cuisine = extraction.profile.cuisine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let city = extraction.profile.neighborhood.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if cuisine.isEmpty {
+            return fallback
+        }
+
+        return [cuisine, city.isEmpty ? "" : "in \(city)"]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private static func story(from extracted: String, fallback: String) -> String {
+        cleanStoryAnswer(extracted.isEmpty ? fallback : extracted)
+    }
+
+    static func cleanStoryAnswer(_ answer: String) -> String {
+        let candidate = VoiceTranscriptNormalizer.normalize(answer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidate
+            .replacingOccurrences(
+                of: #"^(?:what\s+makes\s+(?:us|this|our\s+restaurant)?\s+special\s+is|makes\s+us\s+special\s+is|our\s+story\s+is)\s+"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(
+                of: #"^(?:it\s+is|it's|it’s|we\s+are|we're)\s+"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 struct AddressExtraction {
     var streetAddress: String = ""
     var city: String = ""
@@ -1165,6 +2649,7 @@ struct AddressExtraction {
 enum MissingDetailAnswerExtractor {
     static func restaurantName(from text: String) -> String? {
         let patterns = [
+            #"\b(?:the\s+)?name\s+of\s+(?:the\s+)?restaurant\s+is\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|we\s+|we're\s+|serves?\s+|open\s+|in\s+)|$)"#,
             #"\b(?:called|named|restaurant is|business is)\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|we\s+|we're\s+|serves?\s+|open\s+|in\s+)|$)"#,
             #"^([A-Za-z0-9&' .-]{2,80})$"#
         ]
@@ -1429,6 +2914,14 @@ enum MissingDetailAnswerExtractor {
 }
 
 enum TranscriptRestaurantExtractor {
+    static func cuisineLocation(from transcript: String) -> CuisineLocationExtraction {
+        let normalizedTranscript = normalizeTranscript(transcript)
+        return CuisineLocationExtraction(
+            cuisine: extractCuisine(from: normalizedTranscript),
+            city: extractCity(from: normalizedTranscript)
+        )
+    }
+
     static func extract(from transcript: String) -> TranscriptRestaurantExtraction {
         let normalizedTranscript = normalizeTranscript(transcript)
         let name = extractName(from: normalizedTranscript)
@@ -1476,12 +2969,22 @@ enum TranscriptRestaurantExtractor {
         }
     }
 
+    static func isLikelyHoursAnswer(_ text: String) -> Bool {
+        let cleaned = VoiceTranscriptNormalizer.normalize(text)
+        let lowercased = cleaned.lowercased()
+        let hasDaySignal = dayNames.contains { lowercased.contains($0) }
+            || lowercased.contains("daily")
+            || lowercased.contains("every day")
+        return hasTimeRange(cleaned) && (hasDaySignal || lowercased.contains("open") || lowercased.contains("hours"))
+    }
+
     private static func normalizeTranscript(_ transcript: String) -> String {
         VoiceTranscriptNormalizer.normalize(transcript)
     }
 
     private static func extractName(from transcript: String) -> String {
         let patterns = [
+            #"\b(?:the\s+)?name\s+of\s+(?:the\s+)?restaurant\s+is\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|is\s+(?:a|an|family)|we\s+|we're\s+|open\s+|serve\s+|serves\s+|in\s+[A-Z])|$)"#,
             #"\b(?:called|named)\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|is\s+(?:a|an|family)|we\s+|we're\s+|open\s+|serve\s+|serves\s+|in\s+[A-Z])|$)"#,
             #"\b([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){1,5}\s+(?:Kitchen|Cafe|Coffee|Bakery|Grill|Restaurant|Diner|Bistro|Taqueria|Pizzeria|Bar))\b"#,
             #"\b(?:we are|we're|my restaurant is|the restaurant is)\s+([A-Za-z0-9&' .-]{2,80}?)(?=,|\.|\s+in\s+|\s+serves\s+|\s+serve\s+|\s+is\s+|$)"#
@@ -1499,25 +3002,56 @@ enum TranscriptRestaurantExtractor {
 
     private static func extractCuisine(from transcript: String) -> String {
         let lowercased = transcript.lowercased()
-        let knownCuisines = [
-            "Vietnamese", "Mexican", "Italian", "Chinese", "Thai", "Japanese", "Korean", "Indian",
-            "Filipino", "Ethiopian", "Mediterranean", "American", "Seafood", "Barbecue", "BBQ",
-            "Pizza", "Bakery", "Coffee"
+        let knownCuisines: [(phrase: String, canonical: String)] = [
+            ("salvadorian", "Salvadorian"),
+            ("salvadoran", "Salvadorian"),
+            ("peruvian", "Peruvian"),
+            ("argentinian", "Argentinian"),
+            ("argentine", "Argentinian"),
+            ("vietnamese", "Vietnamese"),
+            ("mexican", "Mexican"),
+            ("italian", "Italian"),
+            ("chinese", "Chinese"),
+            ("thai", "Thai"),
+            ("japanese", "Japanese"),
+            ("korean", "Korean"),
+            ("indian", "Indian"),
+            ("filipino", "Filipino"),
+            ("ethiopian", "Ethiopian"),
+            ("mediterranean", "Mediterranean"),
+            ("american", "American"),
+            ("seafood", "Seafood"),
+            ("barbecue", "Barbecue"),
+            ("bbq", "BBQ"),
+            ("pizza", "Pizza"),
+            ("bakery", "Bakery"),
+            ("coffee", "Coffee")
         ]
 
-        guard let cuisine = knownCuisines.first(where: { lowercased.contains($0.lowercased()) }) else {
+        let matches = knownCuisines.compactMap { cuisine -> (offset: Int, canonical: String)? in
+            guard let range = lowercased.range(of: cuisine.phrase) else { return nil }
+            let offset = lowercased.distance(from: lowercased.startIndex, to: range.lowerBound)
+            return (offset, cuisine.canonical)
+        }
+        let cuisines = matches
+            .sorted { $0.offset < $1.offset }
+            .reduce(into: [String]()) { result, match in
+                if !result.contains(match.canonical) {
+                    result.append(match.canonical)
+                }
+            }
+
+        guard !cuisines.isEmpty else {
             return ""
         }
+
+        let cuisine = joinedList(cuisines)
 
         if lowercased.contains("comfort") {
             return "\(cuisine) comfort food"
         }
 
-        if lowercased.contains("restaurant") {
-            return "\(cuisine) restaurant"
-        }
-
-        return cuisine
+        return "\(cuisine) restaurant"
     }
 
     private static func extractCity(from transcript: String) -> String {
@@ -1535,8 +3069,18 @@ enum TranscriptRestaurantExtractor {
         return firstMatch(pattern, in: transcript, options: []) ?? ""
     }
 
+    private static let dayNames = [
+        "monday", "mon",
+        "tuesday", "tue", "tues",
+        "wednesday", "wed",
+        "thursday", "thu", "thur", "thurs",
+        "friday", "fri",
+        "saturday", "sat",
+        "sunday", "sun"
+    ]
+
     private static func extractHours(from transcript: String) -> String {
-        let dayWords = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "mon-", "daily"]
+        let dayWords = dayNames + ["daily"]
         let transcriptSentences = sentences(from: transcript)
         var candidates: [String] = []
 
@@ -1574,6 +3118,11 @@ enum TranscriptRestaurantExtractor {
             )
             .replacingOccurrences(
                 of: #"\s+\b(?:cheeseburgers?|chicken\s+sandwiches?|fries|lemonade|house\s+pho|rice\s+bowls?|spring\s+rolls?|iced\s+coffee)\b.*$"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(
+                of: #"\s+\b(?:we\s+(?:do|serve|make|are)|we're|it\s+is|it's)\s+(?:[A-Za-z]+(?:ian)?\s+)?(?:food|cuisine|restaurant)\b.*$"#,
                 with: "",
                 options: [.regularExpression, .caseInsensitive]
             )
@@ -1772,6 +3321,10 @@ enum TranscriptRestaurantExtractor {
         }
         let matches = nonOverlappingMenuMatches(rawMatches)
 
+        guard !matches.isEmpty else {
+            return extractPrice(from: transcript) == nil ? [] : [transcript]
+        }
+
         return matches.indices.compactMap { index in
             let match = matches[index]
             let nextStart = matches.indices.contains(index + 1)
@@ -1936,7 +3489,7 @@ enum TranscriptRestaurantExtractor {
         firstMatch(#"((?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4})"#, in: transcript) ?? ""
     }
 
-    private static func menuLabel(for item: MenuItem) -> String {
+    static func menuLabel(for item: MenuItem) -> String {
         guard let price = item.price, price > 0 else {
             return item.name
         }
@@ -1947,7 +3500,7 @@ enum TranscriptRestaurantExtractor {
     private static func cleanNameCandidate(_ candidate: String) -> String? {
         let trimmed = candidate
             .replacingOccurrences(
-                of: #"^(?:we\s+are|we're|my\s+restaurant\s+is|the\s+restaurant\s+is)\s+"#,
+                of: #"^(?:we\s+are|we're|my\s+restaurant\s+is|the\s+restaurant\s+is|(?:the\s+)?name\s+of\s+(?:the\s+)?restaurant\s+is)\s+"#,
                 with: "",
                 options: [.regularExpression, .caseInsensitive]
             )
@@ -2007,6 +3560,12 @@ enum TranscriptRestaurantExtractor {
             .joined(separator: " ")
     }
 
+    private static func joinedList(_ values: [String]) -> String {
+        guard let first = values.first else { return "" }
+        guard values.count > 1 else { return first }
+        return "\(values.dropLast().joined(separator: ", ")) and \(values.last ?? "")"
+    }
+
     private static func firstMatch(
         _ pattern: String,
         in text: String,
@@ -2057,6 +3616,97 @@ extension RestaurantProfile {
             .joined(separator: ", ")
     }
 
+    var hasFullAddress: Bool {
+        !streetAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !neighborhood.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !state.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !postalCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var visibilityChecklistItems: [VisibilityChecklistItem] {
+        let googleProfileURL = visibility.googleBusinessProfileURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let googleReviewURL = visibility.googleReviewURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let yelpURL = visibility.yelpBusinessURL.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return [
+            VisibilityChecklistItem(
+                title: "Full address added",
+                detail: hasFullAddress ? formattedAddress : "Add street, city, state, and ZIP.",
+                isComplete: hasFullAddress,
+                systemImage: "mappin.and.ellipse"
+            ),
+            VisibilityChecklistItem(
+                title: "Phone number added",
+                detail: phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Add a customer-facing phone number." : phone,
+                isComplete: !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                systemImage: "phone"
+            ),
+            VisibilityChecklistItem(
+                title: "Hours added",
+                detail: hours.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Add regular business hours." : hours,
+                isComplete: !hours.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                systemImage: "clock"
+            ),
+            VisibilityChecklistItem(
+                title: "Full menu uploaded",
+                detail: uploadedMenu?.filename ?? "Upload a PDF or image of the full menu.",
+                isComplete: uploadedMenu != nil,
+                systemImage: "menucard"
+            ),
+            VisibilityChecklistItem(
+                title: "Google Business Profile created or claimed",
+                detail: googleProfileURL.isEmpty ? "Add the profile URL or mark it claimed." : googleProfileURL,
+                isComplete: visibility.googleBusinessProfileClaimed || !googleProfileURL.isEmpty,
+                systemImage: "magnifyingglass"
+            ),
+            VisibilityChecklistItem(
+                title: "Google review link added",
+                detail: googleReviewURL.isEmpty ? "Add the owner-provided Google review link." : googleReviewURL,
+                isComplete: !googleReviewURL.isEmpty,
+                systemImage: "star.bubble"
+            ),
+            VisibilityChecklistItem(
+                title: "Yelp business page linked",
+                detail: yelpURL.isEmpty ? "Add the Yelp business page URL." : yelpURL,
+                isComplete: !yelpURL.isEmpty,
+                systemImage: "link"
+            ),
+            VisibilityChecklistItem(
+                title: "Restaurant photos added",
+                detail: visibility.restaurantPhotosAdded ? "Marked ready for local profiles." : "Add recent interior, exterior, and food photos.",
+                isComplete: visibility.restaurantPhotosAdded,
+                systemImage: "photo.on.rectangle"
+            ),
+            VisibilityChecklistItem(
+                title: "Website link added to Google/Yelp profiles",
+                detail: visibility.websiteLinkedOnProfiles ? "Marked linked on external profiles." : "Add the published website URL to Google and Yelp.",
+                isComplete: visibility.websiteLinkedOnProfiles,
+                systemImage: "globe"
+            )
+        ]
+    }
+
+    var visibilityChecklistProgress: (completed: Int, total: Int) {
+        let items = visibilityChecklistItems
+        return (items.filter(\.isComplete).count, items.count)
+    }
+
+    var externalProfileLinks: [RestaurantExternalProfileLink] {
+        [
+            RestaurantExternalProfileLink(title: "Google Business Profile", url: visibility.googleBusinessProfileURL),
+            RestaurantExternalProfileLink(title: "Find us on Yelp", url: visibility.yelpBusinessURL),
+            RestaurantExternalProfileLink(title: "Instagram", url: visibility.instagramURL),
+            RestaurantExternalProfileLink(title: "Facebook", url: visibility.facebookURL)
+        ]
+        .map {
+            RestaurantExternalProfileLink(
+                title: $0.title,
+                url: $0.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        .filter { !$0.url.isEmpty }
+    }
+
     static let empty = RestaurantProfile(
         name: "",
         cuisine: "",
@@ -2088,10 +3738,11 @@ extension RestaurantProfile {
 extension WebsiteDraft {
     static let placeholder = WebsiteDraft(
         headline: "Build a restaurant website by talking to SiteClaw",
-        subheadline: "Capture the menu, hours, story, photos, and local SEO in one guided conversation.",
+        subheadline: "Save the menu, hours, story, photos, and local SEO in one guided conversation.",
         callToAction: "Start Building",
         pages: ["Home", "Menu", "Hours"],
         seoKeywords: ["restaurant website", "local restaurant", "menu online"],
+        designBrief: .fallback,
         url: "https://preview.siteclaw.app",
         lastGeneratedSummary: "No generated site yet. Add restaurant details or use the voice example."
     )
@@ -2102,6 +3753,7 @@ extension WebsiteDraft {
         callToAction: "View Menu",
         pages: ["Home", "Menu", "Hours", "Location", "About"],
         seoKeywords: ["Sunset Grill", "American restaurant in San Jose", "american burgers and sandwiches in San Jose", "Cheeseburgers", "Chicken Sandwiches", "Fries"],
+        designBrief: .fallback,
         url: "https://sunset-grill.siteclaw.app",
         lastGeneratedSummary: "Generated a mobile-first restaurant website with menu, hours, location, and local SEO content."
     )
@@ -2157,7 +3809,8 @@ extension VoiceOnboardingPrompt {
         question: "Ready",
         helperText: "Start voice onboarding to capture restaurant details.",
         capturedAnswer: "",
-        systemImage: "mic.fill"
+        systemImage: "mic.fill",
+        promptKind: .custom
     )
 
     static let samples: [VoiceOnboardingPrompt] = [
@@ -2165,31 +3818,36 @@ extension VoiceOnboardingPrompt {
             question: "What is your restaurant called?",
             helperText: "Say the business name the way customers should see it online.",
             capturedAnswer: "",
-            systemImage: "storefront.fill"
+            systemImage: "storefront.fill",
+            promptKind: .restaurantName
         ),
         VoiceOnboardingPrompt(
             question: "What food do you serve, and where are you located?",
             helperText: "Cuisine and city help SiteClaw write local SEO copy.",
             capturedAnswer: "",
-            systemImage: "mappin.and.ellipse"
+            systemImage: "mappin.and.ellipse",
+            promptKind: .cuisineLocation
         ),
         VoiceOnboardingPrompt(
             question: "What are your hours?",
             helperText: "Customers often look up hours before deciding where to eat.",
             capturedAnswer: "",
-            systemImage: "clock.fill"
+            systemImage: "clock.fill",
+            promptKind: .hours
         ),
         VoiceOnboardingPrompt(
             question: "What menu items should we feature?",
             helperText: "Name a few popular dishes and prices if you know them.",
             capturedAnswer: "",
-            systemImage: "fork.knife"
+            systemImage: "fork.knife",
+            promptKind: .featuredDishes
         ),
         VoiceOnboardingPrompt(
             question: "What makes your restaurant special?",
             helperText: "A short owner story makes the site feel trustworthy.",
             capturedAnswer: "",
-            systemImage: "quote.bubble.fill"
+            systemImage: "quote.bubble.fill",
+            promptKind: .ownerStory
         )
     ]
 
@@ -2198,31 +3856,36 @@ extension VoiceOnboardingPrompt {
             question: "What is your restaurant called?",
             helperText: "Say the business name the way customers should see it online.",
             capturedAnswer: "Sunset Grill",
-            systemImage: "storefront.fill"
+            systemImage: "storefront.fill",
+            promptKind: .restaurantName
         ),
         VoiceOnboardingPrompt(
             question: "What food do you serve, and where are you located?",
             helperText: "Cuisine and city help SiteClaw write local SEO copy.",
             capturedAnswer: "American burgers and sandwiches in San Jose",
-            systemImage: "mappin.and.ellipse"
+            systemImage: "mappin.and.ellipse",
+            promptKind: .cuisineLocation
         ),
         VoiceOnboardingPrompt(
             question: "What are your hours?",
             helperText: "Customers often look up hours before deciding where to eat.",
             capturedAnswer: "Monday through Saturday 10 AM to 8 PM, Sunday 11 AM to 6 PM",
-            systemImage: "clock.fill"
+            systemImage: "clock.fill",
+            promptKind: .hours
         ),
         VoiceOnboardingPrompt(
             question: "What menu items should we feature?",
             helperText: "Name a few popular dishes and prices if you know them.",
             capturedAnswer: "Cheeseburgers $12.99, Chicken Sandwiches $11.49, Fries $4.99, Lemonade $3.49",
-            systemImage: "fork.knife"
+            systemImage: "fork.knife",
+            promptKind: .featuredDishes
         ),
         VoiceOnboardingPrompt(
             question: "What makes your restaurant special?",
             helperText: "A short owner story makes the site feel trustworthy.",
             capturedAnswer: "Fresh ingredients, fast service, and a friendly neighborhood atmosphere",
-            systemImage: "quote.bubble.fill"
+            systemImage: "quote.bubble.fill",
+            promptKind: .ownerStory
         )
     ]
 

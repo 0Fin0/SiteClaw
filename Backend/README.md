@@ -14,7 +14,7 @@ cp .env.example .env
 Edit `Backend/.env` and set:
 
 ```bash
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=your-openai-api-key-here
 ```
 
 ## Run

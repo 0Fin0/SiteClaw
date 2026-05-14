@@ -67,17 +67,17 @@ siteclaw-pipeline/
 
 ```env
 # Anthropic (Claude Sonnet)
-ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_API_KEY=<anthropic-api-key>
 
 # OpenAI (GPT-4o Mini for routing + Whisper)
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=<openai-api-key>
 
 # Supabase
 SUPABASE_URL=https://xxxxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=<supabase-service-role-key>
 
 # Pipeline Auth
-PIPELINE_API_KEY=sk-siteclaw-...
+PIPELINE_API_KEY=<pipeline-api-key>
 
 # Server
 PORT=8000

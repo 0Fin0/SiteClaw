@@ -7,6 +7,7 @@ import SwiftUI
 
 struct TalkToSiteClawView: View {
     @Bindable var studio: SiteClawStudio
+    var scrollResetToken = 0
     var continueToBuild: (() -> Void)?
     @State private var isListening = false
     @State private var backendHealth: BackendHealthResponse?
@@ -18,21 +19,26 @@ struct TalkToSiteClawView: View {
     #endif
 
     private static let guidedQuestionID = "guided-question-card"
+    private static let topAnchorID = "talk-top-anchor"
 
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 16) {
+                        Color.clear
+                            .frame(height: SiteClawTheme.topScrollResetClearance)
+                            .id(Self.topAnchorID)
                         if usesCompactVoiceLayout {
+                            GuidedQuestionCard(studio: studio, isRecording: isListening)
+                                .id(Self.guidedQuestionID)
+                            VoiceCoachCard(studio: studio)
                             VoiceHeroCard(
                                 studio: studio,
                                 isListening: $isListening,
                                 resetID: voiceResetID,
                                 isCompactLayout: usesCompactVoiceLayout
                             )
-                            GuidedQuestionCard(studio: studio, isRecording: isListening)
-                                .id(Self.guidedQuestionID)
                             DemoReadinessCard(
                                 studio: studio,
                                 backendHealth: backendHealth,
@@ -41,6 +47,15 @@ struct TalkToSiteClawView: View {
                                 checkBackend: checkBackend
                             )
                         } else {
+                            VoiceHeroCard(
+                                studio: studio,
+                                isListening: $isListening,
+                                resetID: voiceResetID,
+                                isCompactLayout: usesCompactVoiceLayout
+                            )
+                            GuidedQuestionCard(studio: studio, isRecording: isListening)
+                                .id(Self.guidedQuestionID)
+                            VoiceCoachCard(studio: studio)
                             DemoReadinessCard(
                                 studio: studio,
                                 backendHealth: backendHealth,
@@ -48,27 +63,23 @@ struct TalkToSiteClawView: View {
                                 isCheckingBackend: isCheckingBackend,
                                 checkBackend: checkBackend
                             )
-                            GuidedQuestionCard(studio: studio, isRecording: isListening)
-                                .id(Self.guidedQuestionID)
                         }
 
-                        CapturedDetailsList(prompts: studio.voicePrompts)
-                        MissingDetailsPanel(studio: studio)
-                        TranscriptEditor(studio: studio)
-                        VoiceActionPanel(studio: studio)
+                        TalkReviewDisclosure(studio: studio)
                         if let continueToBuild {
                             DemoFlowCTA(
-                                title: "Ready for Corrections",
+                                title: "Continue to Build",
                                 detail: talkNextStepDetail,
-                                actionTitle: "Review Answers",
+                                actionTitle: "Open Build Checklist",
                                 systemImage: "checklist.checked",
                                 color: SiteClawTheme.mint,
                                 action: continueToBuild
                             )
                         }
                     }
-                    .padding(16)
-                    .padding(.bottom, usesCompactVoiceLayout ? 88 : 0)
+                    .padding(.horizontal, 16)
+                    .padding(.top, SiteClawTheme.navigationContentTopInset)
+                    .padding(.bottom, SiteClawTheme.tabBarClearance)
                 }
                 .background(SiteClawTheme.background.ignoresSafeArea())
                 .onChange(of: studio.activeVoicePromptIndex) { _, _ in
@@ -84,20 +95,22 @@ struct TalkToSiteClawView: View {
                         scrollToQuestion(proxy)
                     }
                 }
+                .onChange(of: scrollResetToken) { _, _ in
+                    withAnimation(.snappy(duration: 0.35)) {
+                        proxy.scrollTo(Self.topAnchorID, anchor: .top)
+                    }
+                }
                 .safeAreaInset(edge: .bottom) {
                     if shouldShowQuestionDock {
                         ActiveQuestionDock(studio: studio, isListening: isListening)
                             .padding(.horizontal, 12)
                             .padding(.top, 8)
                             .padding(.bottom, 8)
-                            .background(.thinMaterial)
                     }
                 }
             }
             .navigationTitle("Talk to SiteClaw")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .siteClawNavigationChrome()
             .task {
                 await checkBackend()
             }
@@ -113,6 +126,7 @@ struct TalkToSiteClawView: View {
                     .accessibilityLabel("Reset voice onboarding")
                 }
             }
+            .accountSettingsToolbar(studio: studio)
         }
     }
 
@@ -137,8 +151,8 @@ struct TalkToSiteClawView: View {
 
     private var talkNextStepDetail: String {
         studio.voiceProgress >= 1
-            ? "Captured answers are ready to clean up before generating the site."
-            : "Use the demo script or capture the remaining guided answers, then review them in Build."
+            ? "Review the saved details and finish the site checklist."
+            : "Save the remaining guided answers or continue to complete details in Build."
     }
 
     private func scrollToQuestion(_ proxy: ScrollViewProxy) {
@@ -174,8 +188,50 @@ private struct DemoReadinessCard: View {
     let backendHealthError: String?
     let isCheckingBackend: Bool
     let checkBackend: () async -> Void
+    @State private var isExpanded = false
 
     var body: some View {
+        if isReady {
+            compactReadiness
+        } else {
+            fullReadiness
+        }
+    }
+
+    private var compactReadiness: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            readinessRows
+                .padding(.top, SiteClawTheme.Spacing.small)
+        } label: {
+            HStack(spacing: SiteClawTheme.Spacing.medium) {
+                IconBadge(systemImage: "checkmark.seal.fill", color: SiteClawTheme.mint)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Voice services ready")
+                        .font(.headline)
+                        .foregroundStyle(SiteClawTheme.ink)
+                    Text("Checks passing.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                StatusPill(title: "Ready", systemImage: "checkmark.circle.fill", color: SiteClawTheme.mint)
+            }
+        }
+        .padding(SiteClawTheme.Spacing.medium)
+        .background(SiteClawTheme.elevatedSurface)
+        .clipShape(RoundedRectangle(cornerRadius: SiteClawTheme.Radius.card, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: SiteClawTheme.Radius.card, style: .continuous)
+                .stroke(SiteClawTheme.separator, lineWidth: 1)
+        }
+        .accessibilityLabel("Voice services ready")
+    }
+
+    private var fullReadiness: some View {
         VStack(spacing: 12) {
             SectionHeader(title: "Voice Readiness", subtitle: "Quick checks for the live demo.")
 
@@ -204,35 +260,43 @@ private struct DemoReadinessCard: View {
                         .accessibilityLabel("Check backend")
                     }
 
-                    VStack(spacing: 10) {
-                        ReadinessRow(
-                            title: "App connection",
-                            detail: backendHealth == nil ? "Check before recording" : "Ready for the demo",
-                            isReady: backendHealth != nil,
-                            systemImage: "network"
-                        )
-                        ReadinessRow(
-                            title: "Voice capture",
-                            detail: backendHealth?.realtimeModel.isEmpty == false ? "Ready to transcribe answers" : "Waiting for readiness check",
-                            isReady: backendHealth?.realtimeModel.isEmpty == false,
-                            systemImage: "waveform.circle.fill"
-                        )
-                        ReadinessRow(
-                            title: "Website draft",
-                            detail: backendHealth?.generationModel.isEmpty == false ? "Ready to generate preview copy" : "Waiting for readiness check",
-                            isReady: backendHealth?.generationModel.isEmpty == false,
-                            systemImage: "sparkles"
-                        )
-                        ReadinessRow(
-                            title: "Required content",
-                            detail: ownerDetailStatus,
-                            isReady: requiredMissingDetails.isEmpty,
-                            systemImage: "checklist"
-                        )
-                    }
+                    readinessRows
                 }
             }
         }
+    }
+
+    private var readinessRows: some View {
+        VStack(spacing: 10) {
+            ReadinessRow(
+                title: "App connection",
+                detail: backendHealth == nil ? "Check before recording" : "Ready for the demo",
+                isReady: backendHealth != nil,
+                systemImage: "network"
+            )
+            ReadinessRow(
+                title: "Voice capture",
+                detail: backendHealth?.realtimeModel.isEmpty == false ? "Ready to transcribe answers" : "Waiting for readiness check",
+                isReady: backendHealth?.realtimeModel.isEmpty == false,
+                systemImage: "waveform.circle.fill"
+            )
+            ReadinessRow(
+                title: "Website draft",
+                detail: backendHealth?.generationModel.isEmpty == false ? "Ready to generate preview copy" : "Waiting for readiness check",
+                isReady: backendHealth?.generationModel.isEmpty == false,
+                systemImage: "sparkles"
+            )
+            ReadinessRow(
+                title: "Required content",
+                detail: ownerDetailStatus,
+                isReady: requiredMissingDetails.isEmpty,
+                systemImage: "checklist"
+            )
+        }
+    }
+
+    private var isReady: Bool {
+        backendHealth != nil && backendHealthError == nil && requiredMissingDetails.isEmpty
     }
 
     private var statusDetail: String {
@@ -253,7 +317,7 @@ private struct DemoReadinessCard: View {
 
     private var ownerDetailStatus: String {
         if requiredMissingDetails.isEmpty, optionalMissingCount == 0 {
-            return "Required and optional details captured"
+            return "Required and optional details saved"
         }
 
         if requiredMissingDetails.isEmpty {
@@ -656,7 +720,7 @@ private struct VoiceHeroCard: View {
         case "Heard Answer":
             return "Answer ready"
         case "Captured":
-            return "Answer captured"
+            return "Answer saved"
         case "Generated":
             return "Website draft ready"
         case "Needs Answer":
@@ -674,7 +738,7 @@ private struct VoiceHeroCard: View {
 
     private var displayStatusDetail: String {
         if !studio.pendingVoiceAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Review what SiteClaw heard, then tap Capture."
+            return "Review what SiteClaw heard, then tap Save Answer."
         }
 
         switch studio.realtimeStatus {
@@ -683,17 +747,17 @@ private struct VoiceHeroCard: View {
         case "Connecting", "Token Ready", "Streaming":
             return "Preparing the microphone for the current question."
         case "Listening":
-            return "Speak one answer, pause, then capture it."
+            return "Speak one answer, pause, then save it."
         case "Processing", "Transcribing":
             return "Turning this answer into editable text."
         case "Heard Answer":
-            return "Tap Capture when the answer looks right."
+            return "Tap Save Answer when the answer looks right."
         case "Captured":
             return "Continue to the next question or generate the draft."
         case "Generated":
             return "Preview the site and make corrections in Build."
         case "Needs Answer":
-            return "Speak or type an answer before capturing."
+            return "Speak or type an answer before saving."
         case "Needs Detail":
             return "Record the missing owner detail shown below."
         case "Ready to Publish":
@@ -750,6 +814,7 @@ private struct AudioLevelMeter: View {
 private struct GuidedQuestionCard: View {
     @Bindable var studio: SiteClawStudio
     let isRecording: Bool
+    @State private var coachTask: Task<Void, Never>?
 
     var body: some View {
         ClawCard {
@@ -786,13 +851,25 @@ private struct GuidedQuestionCard: View {
                 if studio.activeVoicePrompt.capturedAnswer.isEmpty,
                    !studio.pendingVoiceAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Heard for this step")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(SiteClawTheme.sky)
-                        Text(studio.pendingVoiceAnswer)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(SiteClawTheme.ink)
-                            .fixedSize(horizontal: false, vertical: true)
+                        HStack {
+                            Text("Heard for this step")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(SiteClawTheme.sky)
+
+                            Spacer()
+
+                            Button {
+                                studio.pendingVoiceAnswer = ""
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Clear heard answer")
+                        }
+
+                        TextField("Edit heard answer", text: $studio.pendingVoiceAnswer, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(2...4)
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -801,14 +878,48 @@ private struct GuidedQuestionCard: View {
                 }
 
                 if !studio.activeVoicePrompt.capturedAnswer.isEmpty {
-                    Text(studio.activeVoicePrompt.capturedAnswer)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(SiteClawTheme.ink)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(SiteClawTheme.mint.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Saved answer")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(SiteClawTheme.mint)
+
+                            Spacer()
+
+                            Button {
+                                capturedAnswerBinding.wrappedValue = ""
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Clear saved answer")
+                        }
+
+                        TextField("Edit saved answer", text: capturedAnswerBinding, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(2...4)
+
+                        Button {
+                            if let request = studio.applyEditedVoicePromptAnswer() {
+                                runVoiceCoach(request)
+                            }
+                        } label: {
+                            Label("Apply Edit", systemImage: "checkmark.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(SiteClawTheme.mint)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(SiteClawTheme.mint.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
+
+                Text("Tap Save Answer when this answer looks right.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 10) {
                     Button {
@@ -821,13 +932,245 @@ private struct GuidedQuestionCard: View {
                     .disabled(studio.activeVoicePromptIndex == 0)
 
                     Button {
-                        studio.captureCurrentVoicePrompt()
+                        if let request = studio.captureCurrentVoicePrompt() {
+                            runVoiceCoach(request)
+                        }
                     } label: {
-                        Label("Capture", systemImage: "checkmark")
+                        Label("Save Answer", systemImage: "checkmark")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(SiteClawTheme.coral)
+                }
+            }
+        }
+        .onDisappear {
+            coachTask?.cancel()
+        }
+    }
+
+    private var capturedAnswerBinding: Binding<String> {
+        Binding(
+            get: {
+                guard studio.voicePrompts.indices.contains(studio.activeVoicePromptIndex) else { return "" }
+                return studio.voicePrompts[studio.activeVoicePromptIndex].capturedAnswer
+            },
+            set: { newValue in
+                guard studio.voicePrompts.indices.contains(studio.activeVoicePromptIndex) else { return }
+                studio.voicePrompts[studio.activeVoicePromptIndex].capturedAnswer = newValue
+            }
+        )
+    }
+
+    private func runVoiceCoach(_ request: VoiceCoachRequest) {
+        coachTask?.cancel()
+        studio.beginVoiceCoachTurn(for: request)
+        coachTask = Task {
+            do {
+                let response = try await VoiceCoachService().coachTurn(request: request)
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    studio.applyVoiceCoachResponse(response, for: request)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    studio.failVoiceCoachTurn(error, for: request)
+                }
+            }
+        }
+    }
+}
+
+private struct VoiceCoachCard: View {
+    @Bindable var studio: SiteClawStudio
+    @State private var followUpAnswer = ""
+    @State private var coachTask: Task<Void, Never>?
+
+    var body: some View {
+        ClawCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: studio.isVoiceCoachWorking ? "sparkles" : "wand.and.stars")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(statusColor)
+                        .frame(width: 34, height: 34)
+                        .background(statusColor.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Voice Coach")
+                            .font(.headline)
+                        Text(studio.voiceCoachStatus)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer()
+
+                    if let turn = studio.latestVoiceCoachTurn {
+                        LabelPill(
+                            title: turn.confidence.displayName,
+                            systemImage: confidenceIcon(for: turn.confidence),
+                            color: confidenceColor(for: turn.confidence)
+                        )
+                    }
+                }
+
+                if studio.isVoiceCoachWorking {
+                    ProgressView("Reviewing answer and site strategy")
+                        .font(.caption)
+                        .tint(SiteClawTheme.coral)
+                }
+
+                if let turn = studio.latestVoiceCoachTurn {
+                    VStack(alignment: .leading, spacing: 8) {
+                        CoachFactRow(title: "What I heard", value: turn.cleanedAnswer, systemImage: "text.quote")
+
+                        if turn.hasMissingDetails {
+                            CoachTagSection(title: "Missing Details", tags: turn.missingDetails, color: SiteClawTheme.gold)
+                        }
+
+                        if !turn.designNotes.isEmpty {
+                            CoachTagSection(title: "Design Notes", tags: turn.designNotes, color: SiteClawTheme.sky)
+                        }
+                    }
+                } else if !studio.isVoiceCoachWorking {
+                    Text("After each saved answer, SiteClaw will clean the response, flag gaps, and explain how it changes the website direction.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if !studio.activeSuggestedFollowUp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Suggested follow-up", systemImage: "questionmark.bubble.fill")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(SiteClawTheme.coral)
+                        Text(studio.activeSuggestedFollowUp)
+                            .font(.subheadline.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                        TextField("Answer the follow-up", text: $followUpAnswer, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(2...4)
+
+                        Button {
+                            applyFollowUp()
+                        } label: {
+                            Label("Apply Follow-up", systemImage: "checkmark.sparkles")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(SiteClawTheme.coral)
+                        .disabled(followUpAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    .padding(12)
+                    .background(SiteClawTheme.coral.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+        }
+        .onDisappear {
+            coachTask?.cancel()
+        }
+    }
+
+    private var statusColor: Color {
+        if studio.isVoiceCoachWorking {
+            return SiteClawTheme.gold
+        }
+
+        guard let confidence = studio.latestVoiceCoachTurn?.confidence else {
+            return SiteClawTheme.sky
+        }
+
+        return confidenceColor(for: confidence)
+    }
+
+    private func applyFollowUp() {
+        guard let request = studio.applyVoiceCoachFollowUpAnswer(followUpAnswer) else { return }
+        followUpAnswer = ""
+        coachTask?.cancel()
+        studio.beginVoiceCoachTurn(for: request)
+        coachTask = Task {
+            do {
+                let response = try await VoiceCoachService().coachTurn(request: request)
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    studio.applyVoiceCoachResponse(response, for: request)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    studio.failVoiceCoachTurn(error, for: request)
+                }
+            }
+        }
+    }
+
+    private func confidenceColor(for confidence: VoiceCoachConfidence) -> Color {
+        switch confidence {
+        case .high: SiteClawTheme.mint
+        case .medium: SiteClawTheme.gold
+        case .low: SiteClawTheme.coral
+        }
+    }
+
+    private func confidenceIcon(for confidence: VoiceCoachConfidence) -> String {
+        switch confidence {
+        case .high: "checkmark.seal.fill"
+        case .medium: "exclamationmark.triangle.fill"
+        case .low: "questionmark.circle.fill"
+        }
+    }
+}
+
+private struct CoachFactRow: View {
+    let title: String
+    let value: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(SiteClawTheme.sky)
+                .frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Text(value.isEmpty ? "No cleaned answer yet." : value)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+private struct CoachTagSection: View {
+    let title: String
+    let tags: [String]
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(tags, id: \.self) { tag in
+                    Label(tag, systemImage: "sparkle")
+                        .font(.caption)
+                        .foregroundStyle(SiteClawTheme.ink)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(color.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
         }
@@ -837,50 +1180,221 @@ private struct GuidedQuestionCard: View {
 private struct ActiveQuestionDock: View {
     @Bindable var studio: SiteClawStudio
     let isListening: Bool
+    @State private var coachTask: Task<Void, Never>?
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: isListening ? "waveform.circle.fill" : "checkmark.circle.fill")
-                .font(.title3)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(isListening ? SiteClawTheme.coral : SiteClawTheme.mint)
-                .frame(width: 30, height: 30)
+        GlassFloatingContainer {
+            HStack(spacing: 12) {
+                Image(systemName: isListening ? "waveform.circle.fill" : "checkmark.circle.fill")
+                    .font(.title3)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(isListening ? SiteClawTheme.coral : SiteClawTheme.mint)
+                    .frame(width: 30, height: 30)
+                    .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(studio.activeVoiceStepLabel)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-                Text(studio.activeVoicePrompt.question)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(SiteClawTheme.ink)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(studio.activeVoiceStepLabel)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                    Text(studio.activeVoicePrompt.question)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SiteClawTheme.ink)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    if let request = studio.captureCurrentVoicePrompt() {
+                        runVoiceCoach(request)
+                    }
+                } label: {
+                    Label("Save Answer", systemImage: "checkmark")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(SiteClawTheme.coral)
+                .disabled(!canCapture)
+                .accessibilityLabel("Save current answer")
             }
-
-            Spacer(minLength: 0)
-
-            Button {
-                studio.captureCurrentVoicePrompt()
-            } label: {
-                Label("Capture", systemImage: "checkmark")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(SiteClawTheme.coral)
-            .disabled(!canCapture)
-            .accessibilityLabel("Capture current answer")
         }
-        .padding(12)
-        .background(SiteClawTheme.elevatedSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(SiteClawTheme.separator, lineWidth: 1)
+        .onDisappear {
+            coachTask?.cancel()
         }
-        .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
     }
 
     private var canCapture: Bool {
         !studio.pendingVoiceAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func runVoiceCoach(_ request: VoiceCoachRequest) {
+        coachTask?.cancel()
+        studio.beginVoiceCoachTurn(for: request)
+        coachTask = Task {
+            do {
+                let response = try await VoiceCoachService().coachTurn(request: request)
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    studio.applyVoiceCoachResponse(response, for: request)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    studio.failVoiceCoachTurn(error, for: request)
+                }
+            }
+        }
+    }
+}
+
+private struct TalkReviewDisclosure: View {
+    @Bindable var studio: SiteClawStudio
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Button {
+                withAnimation(.snappy(duration: 0.24)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                SectionDisclosureRow(
+                    title: "Review Saved Answers",
+                    subtitle: "Transcript, answer review, and draft generation tools.",
+                    statusTitle: progressLabel,
+                    statusImage: "checklist",
+                    statusColor: SiteClawTheme.mint,
+                    systemImage: "text.bubble.fill",
+                    tint: SiteClawTheme.sky,
+                    isExpanded: isExpanded
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Review saved answers, \(progressLabel)")
+            .accessibilityHint(isExpanded ? "Collapse review tools" : "Expand review tools")
+
+            if isExpanded {
+                VStack(spacing: 16) {
+                    VoiceProfileReviewCard(studio: studio)
+                    CapturedDetailsList(prompts: studio.voicePrompts)
+                    MissingDetailsPanel(studio: studio)
+                    TranscriptEditor(studio: studio)
+                    VoiceActionPanel(studio: studio)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    private var progressLabel: String {
+        let capturedCount = studio.voicePrompts.filter {
+            !$0.capturedAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.count
+        return "\(capturedCount)/\(studio.voicePrompts.count)"
+    }
+}
+
+private struct VoiceProfileReviewCard: View {
+    @Bindable var studio: SiteClawStudio
+
+    var body: some View {
+        VStack(spacing: 12) {
+            SectionHeader(
+                title: "Structured Profile Review",
+                subtitle: "What Build will use after the guided walkthrough."
+            )
+
+            ClawCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(reviewTitle)
+                                .font(.headline)
+                            Text("Review confidence before moving into Build. Low-confidence fields should be edited or saved again.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer()
+
+                        StatusPill(
+                            title: "\(readyCount)/\(studio.voiceCaptureReviewItems.count)",
+                            systemImage: "checklist",
+                            color: readyCount == studio.voiceCaptureReviewItems.count ? SiteClawTheme.mint : SiteClawTheme.gold
+                        )
+                    }
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
+                        ForEach(studio.voiceCaptureReviewItems) { item in
+                            VoiceProfileReviewTile(item: item)
+                        }
+                    }
+
+                    Button {
+                        _ = studio.applyVoiceTranscriptToProfile()
+                    } label: {
+                        Label("Apply Review to Build", systemImage: "arrow.down.doc.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(SiteClawTheme.mint)
+                }
+            }
+        }
+    }
+
+    private var readyCount: Int {
+        studio.voiceCaptureReviewItems.filter(\.isReady).count
+    }
+
+    private var reviewTitle: String {
+        readyCount == studio.voiceCaptureReviewItems.count
+            ? "Saved profile is ready"
+            : "Review saved profile"
+    }
+}
+
+private struct VoiceProfileReviewTile: View {
+    let item: VoiceCaptureReviewItem
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: item.systemImage)
+                .foregroundStyle(item.isReady ? SiteClawTheme.mint : SiteClawTheme.gold)
+                .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(item.title)
+                        .font(.caption.weight(.bold))
+                    Text(item.statusLabel)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(item.isReady ? SiteClawTheme.mint : SiteClawTheme.gold)
+                }
+
+                Text(item.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Needs owner input" : item.value)
+                    .font(.caption)
+                    .foregroundStyle(SiteClawTheme.ink)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ProgressView(value: item.confidence)
+                    .tint(item.isReady ? SiteClawTheme.mint : SiteClawTheme.gold)
+                    .accessibilityLabel("\(item.title) confidence")
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
+        .background((item.isReady ? SiteClawTheme.mint : SiteClawTheme.gold).opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(item.isReady ? SiteClawTheme.mint.opacity(0.20) : SiteClawTheme.gold.opacity(0.20), lineWidth: 1)
+        }
     }
 }
 
@@ -890,8 +1404,8 @@ private struct CapturedDetailsList: View {
     var body: some View {
         VStack(spacing: 12) {
             SectionHeader(
-                title: "Captured Answers",
-                subtitle: "Review what SiteClaw has captured from the guided questions."
+                title: "Saved Answers",
+                subtitle: "Review what SiteClaw has saved from the guided questions."
             )
 
             VStack(spacing: 10) {
@@ -1070,7 +1584,7 @@ private struct VoiceActionPanel: View {
             .controlSize(.large)
             .disabled(isGeneratingDraft)
 
-            Text(generationMessage ?? "Creates website copy from the captured answers. You can still correct details in Build.")
+            Text(generationMessage ?? "Creates website copy from the saved answers. You can still correct details in Build.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -1090,10 +1604,30 @@ private struct VoiceActionPanel: View {
             return
         }
 
-        generationMessage = "Writing the website draft from captured answers."
+        generationMessage = "Polishing the saved profile, then writing the website draft."
 
-        let request = SiteGenerationRequest(studio: studio)
+        let profileRequest = ProfileExtractionRequest(studio: studio)
         generationTask = Task {
+            do {
+                let profileResponse = try await ProfileExtractionService().extractProfile(request: profileRequest)
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    studio.applyProfileExtraction(profileResponse)
+                    generationMessage = "Profile polished. Writing the website draft."
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    generationMessage = "Using the local capture. Writing the website draft."
+                }
+            }
+
+            let request = await MainActor.run {
+                SiteGenerationRequest(studio: studio)
+            }
+
             do {
                 let response = try await SiteGenerationService().generateDraft(request: request)
                 guard !Task.isCancelled else { return }

@@ -15,6 +15,10 @@ struct RestaurantJSON: Codable, Hashable, Sendable {
     var menu: RestaurantJSONMenu
     var seo: RestaurantJSONSEO
     var branding: RestaurantJSONBranding
+    var visibility: RestaurantJSONVisibility
+    var features: RestaurantSiteFeatures
+    var growthTools: RestaurantGrowthTools
+    var designBrief: RestaurantDesignBrief
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -26,6 +30,57 @@ struct RestaurantJSON: Codable, Hashable, Sendable {
         case menu
         case seo
         case branding
+        case visibility
+        case features
+        case growthTools = "growth_tools"
+        case designBrief = "design_brief"
+    }
+
+    init(
+        schemaVersion: String,
+        restaurantID: String,
+        lastUpdated: String,
+        basics: RestaurantJSONBasics,
+        contact: RestaurantJSONContact,
+        hours: RestaurantJSONHours,
+        menu: RestaurantJSONMenu,
+        seo: RestaurantJSONSEO,
+        branding: RestaurantJSONBranding,
+        visibility: RestaurantJSONVisibility,
+        features: RestaurantSiteFeatures = .empty,
+        growthTools: RestaurantGrowthTools = .recommended,
+        designBrief: RestaurantDesignBrief = .fallback
+    ) {
+        self.schemaVersion = schemaVersion
+        self.restaurantID = restaurantID
+        self.lastUpdated = lastUpdated
+        self.basics = basics
+        self.contact = contact
+        self.hours = hours
+        self.menu = menu
+        self.seo = seo
+        self.branding = branding
+        self.visibility = visibility
+        self.features = features
+        self.growthTools = growthTools
+        self.designBrief = designBrief.normalized
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(String.self, forKey: .schemaVersion)
+        restaurantID = try container.decode(String.self, forKey: .restaurantID)
+        lastUpdated = try container.decode(String.self, forKey: .lastUpdated)
+        basics = try container.decode(RestaurantJSONBasics.self, forKey: .basics)
+        contact = try container.decode(RestaurantJSONContact.self, forKey: .contact)
+        hours = try container.decode(RestaurantJSONHours.self, forKey: .hours)
+        menu = try container.decode(RestaurantJSONMenu.self, forKey: .menu)
+        seo = try container.decode(RestaurantJSONSEO.self, forKey: .seo)
+        branding = try container.decode(RestaurantJSONBranding.self, forKey: .branding)
+        visibility = try container.decode(RestaurantJSONVisibility.self, forKey: .visibility)
+        features = try container.decodeIfPresent(RestaurantSiteFeatures.self, forKey: .features) ?? .empty
+        growthTools = try container.decodeIfPresent(RestaurantGrowthTools.self, forKey: .growthTools) ?? .recommended
+        designBrief = (try container.decodeIfPresent(RestaurantDesignBrief.self, forKey: .designBrief) ?? .fallback).normalized
     }
 }
 
@@ -47,7 +102,31 @@ struct RestaurantJSONBasics: Codable, Hashable, Sendable {
 
 struct RestaurantJSONContact: Codable, Hashable, Sendable {
     var phone: String
+    var cateringEmail: String
     var address: RestaurantJSONAddress
+
+    init(
+        phone: String,
+        cateringEmail: String = "",
+        address: RestaurantJSONAddress
+    ) {
+        self.phone = phone
+        self.cateringEmail = cateringEmail
+        self.address = address
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case phone
+        case cateringEmail = "catering_email"
+        case address
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        phone = try container.decode(String.self, forKey: .phone)
+        cateringEmail = try container.decodeIfPresent(String.self, forKey: .cateringEmail) ?? ""
+        address = try container.decode(RestaurantJSONAddress.self, forKey: .address)
+    }
 }
 
 struct RestaurantJSONAddress: Codable, Hashable, Sendable {
@@ -76,6 +155,29 @@ struct RestaurantJSONTimeRange: Codable, Hashable, Sendable {
 struct RestaurantJSONMenu: Codable, Hashable, Sendable {
     var categories: [RestaurantJSONMenuCategory]
     var notes: String
+    var uploadedAsset: RestaurantJSONUploadedMenuAsset?
+
+    enum CodingKeys: String, CodingKey {
+        case categories
+        case notes
+        case uploadedAsset = "uploaded_asset"
+    }
+}
+
+struct RestaurantJSONUploadedMenuAsset: Codable, Hashable, Sendable {
+    var filename: String
+    var mediaType: String
+    var kind: String
+    var dataURL: String
+    var byteCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case filename
+        case mediaType = "media_type"
+        case kind
+        case dataURL = "data_url"
+        case byteCount = "byte_count"
+    }
 }
 
 struct RestaurantJSONMenuCategory: Codable, Hashable, Sendable {
@@ -96,15 +198,48 @@ struct RestaurantJSONMenuItem: Codable, Hashable, Sendable {
     var name: String
     var description: String
     var price: Double?
+    var imageURL: String?
     var dietary: [String]
     var featured: Bool
     var available: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case description
+        case price
+        case imageURL = "image_url"
+        case dietary
+        case featured
+        case available
+    }
 }
 
 struct RestaurantJSONSEO: Codable, Hashable, Sendable {
     var title: String
     var description: String
     var keywords: [String]
+}
+
+struct RestaurantJSONVisibility: Codable, Hashable, Sendable {
+    var googleBusinessProfileURL: String
+    var googleReviewURL: String
+    var yelpBusinessURL: String
+    var instagramURL: String
+    var facebookURL: String
+    var googleBusinessProfileClaimed: Bool
+    var restaurantPhotosAdded: Bool
+    var websiteLinkedOnProfiles: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case googleBusinessProfileURL = "google_business_profile_url"
+        case googleReviewURL = "google_review_url"
+        case yelpBusinessURL = "yelp_business_url"
+        case instagramURL = "instagram_url"
+        case facebookURL = "facebook_url"
+        case googleBusinessProfileClaimed = "google_business_profile_claimed"
+        case restaurantPhotosAdded = "restaurant_photos_added"
+        case websiteLinkedOnProfiles = "website_linked_on_profiles"
+    }
 }
 
 struct RestaurantJSONBranding: Codable, Hashable, Sendable {
@@ -147,6 +282,7 @@ enum RestaurantJSONExporter {
             ),
             contact: RestaurantJSONContact(
                 phone: restaurant.phone,
+                cateringEmail: restaurant.cateringEmail,
                 address: RestaurantJSONAddress(
                     street: restaurant.streetAddress,
                     city: city,
@@ -156,17 +292,30 @@ enum RestaurantJSONExporter {
                 )
             ),
             hours: makeHours(from: restaurant.hours),
-            menu: makeMenu(from: restaurant.menuItems),
+            menu: makeMenu(from: restaurant.menuItems, uploadedMenu: restaurant.uploadedMenu),
             seo: RestaurantJSONSEO(
                 title: "\(name) | \(cuisine) in \(city)",
                 description: draft.subheadline,
                 keywords: draft.seoKeywords
             ),
             branding: RestaurantJSONBranding(
-                primaryColor: "#0D1A2B",
-                accentColor: "#E84F3C",
-                fontStyle: "modern"
-            )
+                primaryColor: restaurant.branding.primaryColorHex,
+                accentColor: restaurant.branding.accentColorHex,
+                fontStyle: restaurant.branding.fontStyle
+            ),
+            visibility: RestaurantJSONVisibility(
+                googleBusinessProfileURL: restaurant.visibility.googleBusinessProfileURL,
+                googleReviewURL: restaurant.visibility.googleReviewURL,
+                yelpBusinessURL: restaurant.visibility.yelpBusinessURL,
+                instagramURL: restaurant.visibility.instagramURL,
+                facebookURL: restaurant.visibility.facebookURL,
+                googleBusinessProfileClaimed: restaurant.visibility.googleBusinessProfileClaimed,
+                restaurantPhotosAdded: restaurant.visibility.restaurantPhotosAdded,
+                websiteLinkedOnProfiles: restaurant.visibility.websiteLinkedOnProfiles
+            ),
+            features: restaurant.features,
+            growthTools: restaurant.growthTools,
+            designBrief: draft.designBrief
         )
     }
 
@@ -182,7 +331,10 @@ enum RestaurantJSONExporter {
         return string
     }
 
-    private static func makeMenu(from menuItems: [MenuItem]) -> RestaurantJSONMenu {
+    private static func makeMenu(
+        from menuItems: [MenuItem],
+        uploadedMenu: UploadedMenuAsset?
+    ) -> RestaurantJSONMenu {
         let items = menuItems.enumerated().map { index, item in
             let description = item.description.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -190,6 +342,7 @@ enum RestaurantJSONExporter {
                 name: item.name,
                 description: description,
                 price: item.price,
+                imageURL: item.image?.dataURL,
                 dietary: [],
                 featured: index == 0,
                 available: true
@@ -199,13 +352,22 @@ enum RestaurantJSONExporter {
         return RestaurantJSONMenu(
             categories: [
                 RestaurantJSONMenuCategory(
-                    name: "Featured Menu",
+                    name: "Featured Dishes",
                     description: "Popular dishes selected during SiteClaw voice onboarding.",
                     sortOrder: 0,
                     items: items
                 )
             ],
-            notes: "Menu items and prices come from the owner conversation. Review drafted descriptions, dietary details, and availability before publishing."
+            notes: "Menu items and prices come from the owner conversation. Review drafted descriptions, dietary details, and availability before publishing.",
+            uploadedAsset: uploadedMenu.map {
+                RestaurantJSONUploadedMenuAsset(
+                    filename: $0.filename,
+                    mediaType: $0.mediaType,
+                    kind: $0.kind.rawValue,
+                    dataURL: $0.dataURL,
+                    byteCount: $0.byteCount
+                )
+            }
         )
     }
 
@@ -225,36 +387,93 @@ enum RestaurantJSONExporter {
         }
 
         let lowercasedHours = trimmedHours.lowercased()
-        let mondayThroughSaturday = lowercasedHours.contains("mon-sat")
-            || lowercasedHours.contains("monday through saturday")
-            || lowercasedHours.contains("monday to saturday")
         let everyDay = lowercasedHours.contains("daily")
             || lowercasedHours.contains("every day")
             || lowercasedHours.contains("seven days")
 
-        let weekdayRange = mondayThroughSaturday || everyDay ? [primaryRange] : empty
-        let sundayRange = sundayRange(from: trimmedHours) ?? (everyDay ? [primaryRange] : empty)
+        var rangesByDay = Array(repeating: empty, count: Self.weekdays.count)
+
+        if everyDay {
+            for index in rangesByDay.indices {
+                rangesByDay[index] = [primaryRange]
+            }
+        } else if let dayRange = primaryDayRange(from: trimmedHours) {
+            for index in dayRange {
+                rangesByDay[index] = [primaryRange]
+            }
+        }
+
+        if let sundayRange = daySpecificRange(for: 6, from: trimmedHours) {
+            rangesByDay[6] = sundayRange
+        }
 
         return RestaurantJSONHours(
-            monday: weekdayRange,
-            tuesday: weekdayRange,
-            wednesday: weekdayRange,
-            thursday: weekdayRange,
-            friday: weekdayRange,
-            saturday: weekdayRange,
-            sunday: sundayRange
+            monday: rangesByDay[0],
+            tuesday: rangesByDay[1],
+            wednesday: rangesByDay[2],
+            thursday: rangesByDay[3],
+            friday: rangesByDay[4],
+            saturday: rangesByDay[5],
+            sunday: rangesByDay[6]
         )
     }
 
-    private static func sundayRange(from hoursText: String) -> [RestaurantJSONTimeRange]? {
-        guard let sundayRange = hoursText.range(
-            of: #"(Sun|Sunday)[^,.;]*"#,
+    private static let weekdays = [
+        ["monday", "mon"],
+        ["tuesday", "tue", "tues"],
+        ["wednesday", "wed"],
+        ["thursday", "thu", "thur", "thurs"],
+        ["friday", "fri"],
+        ["saturday", "sat"],
+        ["sunday", "sun"]
+    ]
+
+    private static func primaryDayRange(from hoursText: String) -> ClosedRange<Int>? {
+        let dayPattern = #"(monday|mon|tuesday|tue|tues|wednesday|wed|thursday|thu|thur|thurs|friday|fri|saturday|sat|sunday|sun)"#
+        let pattern = #"\b\#(dayPattern)\b\s*(?:-|–|to|through)\s*\b\#(dayPattern)\b"#
+
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let range = NSRange(hoursText.startIndex..<hoursText.endIndex, in: hoursText)
+        guard let match = regex.firstMatch(in: hoursText, range: range),
+              match.numberOfRanges >= 3,
+              let startRange = Range(match.range(at: 1), in: hoursText),
+              let endRange = Range(match.range(at: 2), in: hoursText),
+              let startIndex = dayIndex(for: String(hoursText[startRange])),
+              let endIndex = dayIndex(for: String(hoursText[endRange])) else {
+            return nil
+        }
+
+        if startIndex <= endIndex {
+            return startIndex...endIndex
+        }
+
+        return nil
+    }
+
+    private static func daySpecificRange(for dayIndex: Int, from hoursText: String) -> [RestaurantJSONTimeRange]? {
+        guard weekdays.indices.contains(dayIndex) else { return nil }
+        let dayAlternatives = weekdays[dayIndex]
+            .map { NSRegularExpression.escapedPattern(for: $0) }
+            .joined(separator: "|")
+
+        guard let dayRange = hoursText.range(
+            of: #"\b(\#(dayAlternatives))\b[^,.;]*"#,
             options: [.regularExpression, .caseInsensitive]
         ) else {
             return nil
         }
 
-        return parseTimeRange(from: String(hoursText[sundayRange])).map { [$0] }
+        return parseTimeRange(from: String(hoursText[dayRange])).map { [$0] }
+    }
+
+    private static func dayIndex(for value: String) -> Int? {
+        let normalized = value.lowercased()
+        return weekdays.firstIndex { aliases in
+            aliases.contains(normalized)
+        }
     }
 
     private static func parseTimeRange(from text: String) -> RestaurantJSONTimeRange? {

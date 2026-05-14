@@ -77,11 +77,11 @@ internalPort = 8000
 **Environment variables:** Set via Railway Dashboard → Service → Variables:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=<anthropic-api-key>
+OPENAI_API_KEY=<openai-api-key>
 SUPABASE_URL=https://xxxxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
-PIPELINE_API_KEY=sk-siteclaw-...
+SUPABASE_SERVICE_ROLE_KEY=<supabase-service-role-key>
+PIPELINE_API_KEY=<pipeline-api-key>
 PORT=8000
 NODE_ENV=production
 ```
@@ -101,7 +101,7 @@ NODE_ENV=production
 **Environment variables (set in Cloudflare Pages Dashboard):**
 ```
 SUPABASE_URL=https://xxxxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=<supabase-service-role-key>
 RESTAURANT_ID=  (set per-deploy via API)
 ```
 
@@ -169,7 +169,7 @@ The Pipeline API key (`PIPELINE_API_KEY`) is a shared secret between Dashboard a
 
 ```bash
 openssl rand -hex 32
-# Output: sk-siteclaw-abc123...
+# Output: <generated-pipeline-api-key>
 ```
 
 Set the same value in both Vercel (Dashboard) and Railway (Pipeline) environment variables.

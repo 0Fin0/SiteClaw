@@ -1,15 +1,19 @@
 import http from "node:http";
 import { createReadStream, readFileSync, existsSync } from "node:fs";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(__dirname, ".env"));
 
 const port = numberFromEnv("PORT", 8787);
-const allowedOrigin = process.env.SITECLAW_ALLOWED_ORIGIN || "*";
+const host = process.env.SITECLAW_HOST || "127.0.0.1";
+const allowedOrigin = process.env.SITECLAW_ALLOWED_ORIGIN || `http://localhost:${port}`;
 const generatedSitesDir = join(__dirname, "generated-sites");
+const maxJSONBodyBytes = numberFromEnv("SITECLAW_MAX_JSON_BODY_BYTES", 10_000_000);
+const maxPublishedSiteBytes = numberFromEnv("SITECLAW_MAX_PUBLISHED_SITE_BYTES", 5_000_000);
+const maxLocalSites = numberFromEnv("SITECLAW_MAX_LOCAL_SITES", 20);
 
 const server = http.createServer(async (req, res) => {
     setCorsHeaders(res);
@@ -67,6 +71,20 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === "POST" && isProfileExtractionPath(url.pathname)) {
+            const body = await readJSON(req);
+            const payload = await extractRestaurantProfile(body);
+            sendJSON(res, 200, payload);
+            return;
+        }
+
+        if (req.method === "POST" && isVoiceCoachPath(url.pathname)) {
+            const body = await readJSON(req);
+            const payload = await coachVoiceTurn(body);
+            sendJSON(res, 200, payload);
+            return;
+        }
+
         if (req.method === "POST" && isLocalPublishPath(url.pathname)) {
             const body = await readJSON(req);
             const payload = await publishLocalSite(body);
@@ -83,8 +101,8 @@ const server = http.createServer(async (req, res) => {
     }
 });
 
-server.listen(port, () => {
-    console.log(`SiteClaw backend listening on http://localhost:${port}`);
+server.listen(port, host, () => {
+    console.log(`SiteClaw backend listening on http://${host}:${port}`);
 });
 
 async function createRealtimeClientSecret(body) {
@@ -183,6 +201,7 @@ async function generateWebsiteDraft(body) {
     const restaurantJSON = body.restaurant_json ?? body.restaurantJSON ?? {};
     const currentDraft = body.draft ?? {};
     const restaurant = body.restaurant ?? {};
+    const siteStrategy = body.site_strategy ?? body.siteStrategy ?? {};
     const transcript = sanitizeTextWithLimit(body.transcript, 5000);
 
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -202,6 +221,11 @@ async function generateWebsiteDraft(body) {
                         "Do not invent addresses, phone numbers, prices, awards, or delivery partners.",
                         "If a fact is missing, omit it or use neutral copy; never use placeholder facts like 123 Main Street, 555 phone numbers, fake hours, or made-up menu prices.",
                         "Keep the tone polished and useful for a busy local restaurant owner.",
+                        "Act like a restaurant website creative director: explain the design strategy through concise design_decisions, story_opportunities, and recommended_modules.",
+                        "Choose one supported design archetype for the site: neighborhood_utility for practical local restaurants, fast_casual_order_first for takeout/order-led concepts, fine_dining_reservation_first for premium reservation-led dining, or cultural_heritage for family, regional, or tradition-led restaurants.",
+                        "Return a design_brief that matches that archetype with primary CTA, secondary CTAs, section names, menu presentation, visual direction, and 3-5 owner-facing design decisions.",
+                        "Use site_strategy and voice coach notes as hints only when they are grounded in owner-provided data.",
+                        "Never invent ordering, reservation, gift card, catering, or private dining URLs; only use those actions as CTAs when owner data already supports them, otherwise prefer safe actions like View Menu, Call Now, or Get Directions.",
                     ].join(" "),
                 },
                 {
@@ -212,7 +236,8 @@ async function generateWebsiteDraft(body) {
                             restaurant,
                             restaurant_json: restaurantJSON,
                             current_draft: currentDraft,
-                            task: "Return improved website draft copy for the native app preview and static export.",
+                            site_strategy: siteStrategy,
+                            task: "Return improved website draft copy and a supported SiteClaw restaurant design brief for the native app preview and static export.",
                         },
                         null,
                         2
@@ -256,14 +281,204 @@ async function generateWebsiteDraft(body) {
     };
 }
 
+async function extractRestaurantProfile(body) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        throw publicError(
+            500,
+            "Missing OPENAI_API_KEY. Copy Backend/.env.example to Backend/.env and add your key."
+        );
+    }
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw publicError(400, "Request body must be a JSON object.");
+    }
+
+    const transcript = sanitizeTextWithLimit(body.transcript, 5000);
+    const capturedAnswers = Array.isArray(body.captured_answers) ? body.captured_answers : [];
+    const restaurant = body.restaurant ?? {};
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            model: generationModel(),
+            input: [
+                {
+                    role: "system",
+                    content: [
+                        "You are SiteClaw's restaurant profile extraction assistant.",
+                        "Use the guided captured answers as the primary source of truth; use the transcript only as supporting context.",
+                        "Return only facts explicitly present in the provided data.",
+                        "Do not invent addresses, phone numbers, prices, menu items, hours, ordering links, reservation links, awards, or delivery partners.",
+                        "Clean the owner story into one concise owner-facing paragraph only when the owner provided story material.",
+                        "Choose one supported suggested_archetype: neighborhood_utility, fast_casual_order_first, fine_dining_reservation_first, or cultural_heritage.",
+                    ].join(" "),
+                },
+                {
+                    role: "user",
+                    content: JSON.stringify(
+                        {
+                            transcript,
+                            captured_answers: capturedAnswers,
+                            current_restaurant: restaurant,
+                            task: "Return a safe restaurant profile field patch and one supported SiteClaw archetype suggestion.",
+                        },
+                        null,
+                        2
+                    ),
+                },
+            ],
+            text: {
+                format: {
+                    type: "json_schema",
+                    name: "siteclaw_profile_extraction",
+                    schema: profileExtractionSchema(),
+                    strict: true,
+                },
+            },
+        }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const message = data?.error?.message || "OpenAI profile extraction failed.";
+        throw publicError(response.status, message);
+    }
+
+    const outputText = extractOutputText(data);
+    if (!outputText) {
+        throw publicError(502, "OpenAI did not return profile extraction text.");
+    }
+
+    try {
+        const generated = JSON.parse(outputText);
+        return {
+            ...generated,
+            model: generationModel(),
+            source: "openai_responses",
+        };
+    } catch {
+        throw publicError(502, "OpenAI returned profile extraction text that was not valid JSON.");
+    }
+}
+
+async function coachVoiceTurn(body) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        throw publicError(
+            500,
+            "Missing OPENAI_API_KEY. Copy Backend/.env.example to Backend/.env and add your key."
+        );
+    }
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw publicError(400, "Request body must be a JSON object.");
+    }
+
+    const promptKind = sanitizeTextWithLimit(body.prompt_kind, 120);
+    const question = sanitizeTextWithLimit(body.question, 1000);
+    const rawAnswer = sanitizeTextWithLimit(body.raw_answer, 2500);
+    const cleanedAnswer = sanitizeTextWithLimit(body.cleaned_answer, 2500);
+    const capturedAnswers = Array.isArray(body.captured_answers) ? body.captured_answers : [];
+    const transcript = sanitizeTextWithLimit(body.transcript, 5000);
+    const restaurant = body.restaurant ?? {};
+    const designBrief = body.design_brief ?? body.designBrief ?? {};
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            model: generationModel(),
+            input: [
+                {
+                    role: "system",
+                    content: [
+                        "You are SiteClaw's Visual Voice Coach and restaurant website creative director.",
+                        "After each guided owner answer, clean only what the owner said, identify missing details, suggest one useful follow-up, and note website strategy implications.",
+                        "Return only facts explicitly present in the provided answer, captured answers, transcript, or current restaurant profile.",
+                        "Do not invent addresses, phone numbers, prices, hours, menu items, URLs, awards, delivery partners, claims, or unsupported details.",
+                        "Never add ordering, reservation, gift-card, catering, or private-dining URLs.",
+                        "If confidence is low, keep the restaurant_patch mostly empty and use missing_details plus suggested_follow_up.",
+                        "Choose archetype_hint from the four supported SiteClaw archetypes only.",
+                        "Write design_notes as short owner-facing reasons, for example: Heritage story section because the owner mentioned family recipes.",
+                    ].join(" "),
+                },
+                {
+                    role: "user",
+                    content: JSON.stringify(
+                        {
+                            prompt_kind: promptKind,
+                            question,
+                            raw_answer: rawAnswer,
+                            cleaned_answer: cleanedAnswer,
+                            captured_answers: capturedAnswers,
+                            transcript,
+                            current_restaurant: restaurant,
+                            current_design_brief: designBrief,
+                            task: "Return one safe coach turn for the native SiteClaw voice UI.",
+                        },
+                        null,
+                        2
+                    ),
+                },
+            ],
+            text: {
+                format: {
+                    type: "json_schema",
+                    name: "siteclaw_voice_coach_turn",
+                    schema: voiceCoachSchema(),
+                    strict: true,
+                },
+            },
+        }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const message = data?.error?.message || "OpenAI voice coach failed.";
+        throw publicError(response.status, message);
+    }
+
+    const outputText = extractOutputText(data);
+    if (!outputText) {
+        throw publicError(502, "OpenAI did not return voice coach text.");
+    }
+
+    try {
+        const generated = JSON.parse(outputText);
+        return {
+            ...generated,
+            model: generationModel(),
+            source: "openai_responses",
+        };
+    } catch {
+        throw publicError(502, "OpenAI returned voice coach text that was not valid JSON.");
+    }
+}
+
 async function publishLocalSite(body) {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
         throw publicError(400, "Request body must be a JSON object.");
     }
 
-    const html = stringWithLimit(body.html, 2_000_000).trim();
+    const html = typeof body.html === "string" ? body.html.trim() : "";
     if (!html || !html.toLowerCase().includes("<html")) {
         throw publicError(400, "Request body must include generated HTML.");
+    }
+    if (Buffer.byteLength(html, "utf8") > maxPublishedSiteBytes) {
+        throw publicError(413, "Generated HTML is too large for local publish.");
+    }
+    if (!isSafeGeneratedHTML(html)) {
+        throw publicError(400, "Generated HTML includes active script that is not allowed in local publish.");
     }
 
     const restaurantJSON = body.restaurant_json ?? body.restaurantJSON;
@@ -281,6 +496,7 @@ async function publishLocalSite(body) {
     await mkdir(siteDir, { recursive: true });
     await writeFile(htmlPath, html, "utf8");
     await writeFile(jsonPath, jsonText, "utf8");
+    await pruneOldLocalSites();
 
     return {
         ok: true,
@@ -392,7 +608,21 @@ async function serveGeneratedSite(url, res) {
         return;
     }
 
-    await sendFile(res, join(generatedSitesDir, slug, filename), contentType);
+    await sendFile(res, safeGeneratedSitePath(slug, filename), contentType);
+}
+
+function safeGeneratedSitePath(slug, filename) {
+    const normalizedSlug = slugify(slug);
+    const safeFilename = filename === "restaurant.json" ? "restaurant.json" : "index.html";
+    const baseDir = join(generatedSitesDir, normalizedSlug);
+    const resolvedBaseDir = resolve(baseDir);
+    const resolvedPath = resolve(baseDir, safeFilename);
+
+    if (resolvedPath !== resolvedBaseDir && !resolvedPath.startsWith(`${resolvedBaseDir}${sep}`)) {
+        throw publicError(400, "Invalid generated site path.");
+    }
+
+    return resolvedPath;
 }
 
 async function sendFile(res, path, contentType) {
@@ -407,6 +637,49 @@ async function sendFile(res, path, contentType) {
     } catch {
         sendJSON(res, 404, { error: "Generated site not found." });
     }
+}
+
+async function pruneOldLocalSites() {
+    let entries = [];
+    try {
+        entries = await readdir(generatedSitesDir, { withFileTypes: true });
+    } catch {
+        return;
+    }
+
+    const directories = [];
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+
+        const siteDir = join(generatedSitesDir, entry.name);
+        try {
+            const siteStat = await stat(siteDir);
+            directories.push({ name: entry.name, mtimeMs: siteStat.mtimeMs });
+        } catch {
+            continue;
+        }
+    }
+
+    directories.sort((left, right) => right.mtimeMs - left.mtimeMs);
+    for (const stale of directories.slice(maxLocalSites)) {
+        // Keep cleanup conservative in the prototype: remove only known generated-site files.
+        const staleDir = join(generatedSitesDir, stale.name);
+        await Promise.allSettled([
+            rm(join(staleDir, "index.html"), { force: true }),
+            rm(join(staleDir, "restaurant.json"), { force: true }),
+        ]);
+    }
+}
+
+function isSafeGeneratedHTML(html) {
+    const scriptPattern = /<script\b(?![^>]*type=["']application\/ld\+json["'])/i;
+    const eventHandlerPattern = /\son[a-z]+\s*=/i;
+    const javascriptURLPattern = /href\s*=\s*["']\s*javascript:/i;
+    return !scriptPattern.test(html)
+        && !eventHandlerPattern.test(html)
+        && !javascriptURLPattern.test(html);
 }
 
 function siteClawInstructions(restaurantName) {
@@ -427,6 +700,14 @@ function isRealtimeSessionPath(pathname) {
 
 function isDraftGenerationPath(pathname) {
     return pathname === "/api/generate/draft" || pathname === "/api/ai/draft";
+}
+
+function isProfileExtractionPath(pathname) {
+    return pathname === "/api/extract/profile";
+}
+
+function isVoiceCoachPath(pathname) {
+    return pathname === "/api/ai/coach-turn" || pathname === "/api/coach/turn";
 }
 
 function isLocalPublishPath(pathname) {
@@ -464,6 +745,95 @@ function draftGenerationSchema() {
                         type: "array",
                         items: { type: "string" },
                     },
+                    design_brief: {
+                        type: "object",
+                        properties: {
+                            archetype: {
+                                type: "string",
+                                enum: [
+                                    "neighborhood_utility",
+                                    "fast_casual_order_first",
+                                    "fine_dining_reservation_first",
+                                    "cultural_heritage",
+                                ],
+                                description: "One supported SiteClaw V1 restaurant website direction.",
+                            },
+                            primary_cta: {
+                                type: "string",
+                                description: "Primary public CTA label, such as View Menu, Order Online, or Reserve a Table.",
+                            },
+                            secondary_ctas: {
+                                type: "array",
+                                items: { type: "string" },
+                                description: "Secondary public CTA labels.",
+                            },
+                            site_sections: {
+                                type: "array",
+                                items: { type: "string" },
+                                description: "Recommended public section labels in display order.",
+                            },
+                            menu_presentation: {
+                                type: "string",
+                                enum: [
+                                    "practical_cards",
+                                    "visual_product_cards",
+                                    "curated_minimal",
+                                    "featured_with_story_notes",
+                                ],
+                            },
+                            visual_direction: {
+                                type: "object",
+                                properties: {
+                                    density: {
+                                        type: "string",
+                                        enum: ["low", "medium", "high"],
+                                    },
+                                    tone: {
+                                        type: "string",
+                                        enum: [
+                                            "warm_local",
+                                            "playful_direct",
+                                            "quiet_luxury",
+                                            "rooted_expressive",
+                                        ],
+                                    },
+                                    motion: {
+                                        type: "string",
+                                        enum: ["minimal", "light_playful", "subtle"],
+                                    },
+                                },
+                                required: ["density", "tone", "motion"],
+                                additionalProperties: false,
+                            },
+                            design_decisions: {
+                                type: "array",
+                                items: { type: "string" },
+                                description: "Three to five owner-facing reasons for the chosen website strategy.",
+                            },
+                            story_opportunities: {
+                                type: "array",
+                                items: { type: "string" },
+                                description: "Grounded story or content opportunities the owner can strengthen.",
+                            },
+                            recommended_modules: {
+                                type: "array",
+                                items: { type: "string" },
+                                description: "Optional SiteClaw growth modules that match owner-provided data.",
+                            },
+                        },
+                        required: [
+                            "archetype",
+                            "primary_cta",
+                            "secondary_ctas",
+                            "site_sections",
+                            "menu_presentation",
+                            "visual_direction",
+                            "design_decisions",
+                            "story_opportunities",
+                            "recommended_modules",
+                        ],
+                        additionalProperties: false,
+                    },
                     last_generated_summary: {
                         type: "string",
                         description: "One-sentence summary of what changed.",
@@ -475,6 +845,7 @@ function draftGenerationSchema() {
                     "call_to_action",
                     "pages",
                     "seo_keywords",
+                    "design_brief",
                     "last_generated_summary",
                 ],
                 additionalProperties: false,
@@ -485,9 +856,144 @@ function draftGenerationSchema() {
     };
 }
 
+function profileExtractionSchema() {
+    return {
+        type: "object",
+        properties: {
+            reply: {
+                type: "string",
+                description: "Short status message about what was cleaned or inferred.",
+            },
+            restaurant_patch: {
+                type: "object",
+                properties: {
+                    name: { type: "string" },
+                    cuisine: { type: "string" },
+                    neighborhood: { type: "string" },
+                    hours: { type: "string" },
+                    story: { type: "string" },
+                    menu_items: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                name: { type: "string" },
+                                description: { type: "string" },
+                                price: {
+                                    type: ["number", "null"],
+                                },
+                            },
+                            required: ["name", "description", "price"],
+                            additionalProperties: false,
+                        },
+                    },
+                },
+                required: ["name", "cuisine", "neighborhood", "hours", "story", "menu_items"],
+                additionalProperties: false,
+            },
+            suggested_archetype: {
+                type: "string",
+                enum: [
+                    "neighborhood_utility",
+                    "fast_casual_order_first",
+                    "fine_dining_reservation_first",
+                    "cultural_heritage",
+                ],
+            },
+        },
+        required: ["reply", "restaurant_patch", "suggested_archetype"],
+        additionalProperties: false,
+    };
+}
+
+function voiceCoachSchema() {
+    return {
+        type: "object",
+        properties: {
+            cleaned_answer: {
+                type: "string",
+                description: "Cleaned version of the owner's answer without invented facts.",
+            },
+            restaurant_patch: {
+                type: "object",
+                properties: {
+                    name: { type: "string" },
+                    cuisine: { type: "string" },
+                    neighborhood: { type: "string" },
+                    hours: { type: "string" },
+                    story: { type: "string" },
+                    menu_items: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                name: { type: "string" },
+                                description: { type: "string" },
+                                price: {
+                                    type: ["number", "null"],
+                                },
+                            },
+                            required: ["name", "description", "price"],
+                            additionalProperties: false,
+                        },
+                    },
+                },
+                required: ["name", "cuisine", "neighborhood", "hours", "story", "menu_items"],
+                additionalProperties: false,
+            },
+            confidence: {
+                type: "string",
+                enum: ["high", "medium", "low"],
+            },
+            missing_details: {
+                type: "array",
+                items: { type: "string" },
+            },
+            suggested_follow_up: {
+                type: "string",
+                description: "One optional follow-up question. Empty string when no follow-up is needed.",
+            },
+            archetype_hint: {
+                type: "string",
+                enum: [
+                    "neighborhood_utility",
+                    "fast_casual_order_first",
+                    "fine_dining_reservation_first",
+                    "cultural_heritage",
+                ],
+            },
+            design_notes: {
+                type: "array",
+                items: { type: "string" },
+                description: "Short design strategy notes grounded in provided facts.",
+            },
+            status_message: {
+                type: "string",
+                description: "Short owner-facing status message for the native UI.",
+            },
+        },
+        required: [
+            "cleaned_answer",
+            "restaurant_patch",
+            "confidence",
+            "missing_details",
+            "suggested_follow_up",
+            "archetype_hint",
+            "design_notes",
+            "status_message",
+        ],
+        additionalProperties: false,
+    };
+}
+
 async function readJSON(req) {
     const chunks = [];
+    let totalBytes = 0;
     for await (const chunk of req) {
+        totalBytes += chunk.length;
+        if (totalBytes > maxJSONBodyBytes) {
+            throw publicError(413, "Request body is too large.");
+        }
         chunks.push(chunk);
     }
 
@@ -558,10 +1064,6 @@ function sanitizeText(value) {
 
 function sanitizeTextWithLimit(value, maxLength) {
     return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
-}
-
-function stringWithLimit(value, maxLength) {
-    return typeof value === "string" ? value.slice(0, maxLength) : "";
 }
 
 function slugify(value) {
