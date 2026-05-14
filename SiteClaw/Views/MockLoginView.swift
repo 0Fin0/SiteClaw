@@ -84,28 +84,11 @@ struct MockLoginView: View {
         ClawCard {
             VStack(alignment: .leading, spacing: 14) {
                 formHeader(
-                    title: "Continue with Demo",
-                    subtitle: "Open the prepared restaurant workspace and walk through the app.",
+                    title: "Login",
+                    subtitle: "Use the demo owner account to open the restaurant workspace.",
                     systemImage: "person.badge.key.fill",
                     color: SiteClawTheme.sky
                 )
-
-                Button {
-                    acceptDemoLogin()
-                } label: {
-                    Label("Continue with Demo", systemImage: "arrow.right.circle.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(SiteClawTheme.coral)
-
-                Divider()
-
-                Text("Account details")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
 
                 LabeledMockAuthField(label: "Username", placeholder: "demo@example.com", text: $demoEmail)
                     #if os(iOS)
@@ -117,6 +100,36 @@ struct MockLoginView: View {
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
+
+                Button {
+                    acceptDemoLogin()
+                } label: {
+                    Label("Login", systemImage: "arrow.right.circle.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(SiteClawTheme.coral)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Preview workspace")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        acceptDemoLogin()
+                    } label: {
+                        Label("Continue with Demo", systemImage: "sparkles")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .tint(SiteClawTheme.coral)
+                }
             }
         }
     }

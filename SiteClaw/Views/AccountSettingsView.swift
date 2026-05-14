@@ -175,7 +175,7 @@ private struct OwnerProfileSettingsCard: View {
     @Bindable var studio: SiteClawStudio
 
     var body: some View {
-        SettingsCard(
+        CollapsibleSettingsCard(
             title: "Owner Profile",
             subtitle: "Basic account details for the restaurant owner.",
             systemImage: "person.text.rectangle.fill",
@@ -191,7 +191,7 @@ private struct RestaurantProfileSettingsCard: View {
     @Bindable var studio: SiteClawStudio
 
     var body: some View {
-        SettingsCard(
+        CollapsibleSettingsCard(
             title: "Restaurant Profile",
             subtitle: "Owner-approved details SiteClaw uses when generating the site.",
             systemImage: "storefront.fill",
@@ -210,8 +210,8 @@ private struct SiteDomainSettingsCard: View {
     @Bindable var studio: SiteClawStudio
 
     var body: some View {
-        SettingsCard(
-            title: "Site Settings",
+        CollapsibleSettingsCard(
+            title: "Publishing Details",
             subtitle: "Publishing details for the generated restaurant website.",
             systemImage: "globe",
             color: SiteClawTheme.mint
@@ -230,7 +230,7 @@ private struct BillingSettingsCard: View {
     @State private var isShowingPlans = false
 
     var body: some View {
-        SettingsCard(
+        CollapsibleSettingsCard(
             title: "Billing",
             subtitle: "Placeholder billing surface for the MVP. Stripe stays out of this local branch.",
             systemImage: "creditcard.fill",
@@ -269,7 +269,7 @@ private struct WorkspaceDataSettingsCard: View {
     @State private var message: String?
 
     var body: some View {
-        SettingsCard(
+        CollapsibleSettingsCard(
             title: "Workspace & Privacy",
             subtitle: "Local project storage, portability, and owner data controls.",
             systemImage: "externaldrive.fill",
@@ -328,30 +328,49 @@ private struct BusinessGrowthSettingsCard: View {
     @Bindable var studio: SiteClawStudio
 
     var body: some View {
-        SettingsCard(
+        CollapsibleSettingsCard(
             title: "Business Growth",
-            subtitle: "Recommended modules for the restaurant's current site direction.",
+            subtitle: studio.hasGrowthToolkitAccess
+                ? "Recommended modules for the restaurant's current site direction."
+                : "Growth Toolkit beta access starts on Growth and Pro.",
             systemImage: "chart.line.uptrend.xyaxis",
             color: SiteClawTheme.mint
         ) {
-            SettingsFactRow(
-                title: "Enabled Modules",
-                value: enabledModules,
-                systemImage: "sparkles"
-            )
-            SettingsFactRow(
-                title: "Recommendations",
-                value: studio.recommendedGrowthToolLabels.joined(separator: ", "),
-                systemImage: "lightbulb.fill"
-            )
-            Button {
-                studio.fillDemoGrowthTools()
-            } label: {
-                Label("Enable Full Demo Toolkit", systemImage: "sparkles")
-                    .frame(maxWidth: .infinity)
+            if !studio.hasGrowthToolkitAccess {
+                SettingsFactRow(
+                    title: "Current Plan",
+                    value: studio.accountSettings.billingPlan,
+                    systemImage: "creditcard.fill"
+                )
+                SettingsFactRow(
+                    title: "Included With",
+                    value: "Growth - $49/mo and Pro - $99/mo",
+                    systemImage: "lock.fill"
+                )
+                Text("Upgrade from Billing to enable the beta growth modules in Build.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                SettingsFactRow(
+                    title: "Enabled Modules",
+                    value: enabledModules,
+                    systemImage: "sparkles"
+                )
+                SettingsFactRow(
+                    title: "Recommendations",
+                    value: studio.recommendedGrowthToolLabels.joined(separator: ", "),
+                    systemImage: "lightbulb.fill"
+                )
+                Button {
+                    studio.fillDemoGrowthTools()
+                } label: {
+                    Label("Enable Full Demo Toolkit", systemImage: "sparkles")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(SiteClawTheme.mint)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(SiteClawTheme.mint)
         }
     }
 
@@ -487,6 +506,83 @@ private struct SettingsCard<Content: View>: View {
 
                 VStack(spacing: 12) {
                     content
+                }
+            }
+        }
+    }
+}
+
+private struct CollapsibleSettingsCard<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let color: Color
+    private let content: Content
+    @State private var isExpanded: Bool
+
+    init(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        color: Color,
+        initiallyExpanded: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.color = color
+        self.content = content()
+        _isExpanded = State(initialValue: initiallyExpanded)
+    }
+
+    var body: some View {
+        ClawCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Button {
+                    withAnimation(.snappy(duration: 0.24)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: systemImage)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(color)
+                            .frame(width: 38, height: 38)
+                            .background(color.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .accessibilityHidden(true)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(title)
+                                .font(.headline)
+                                .foregroundStyle(SiteClawTheme.ink)
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                            .padding(.top, 8)
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(title)
+                .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
+
+                if isExpanded {
+                    VStack(spacing: 12) {
+                        content
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         }

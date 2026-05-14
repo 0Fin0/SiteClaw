@@ -299,6 +299,10 @@ final class SiteClawStudio {
         GeneratedSiteRenderer.makeExport(from: restaurantJSON, draft: draft)
     }
 
+    var isSiteExportStale: Bool {
+        siteExportStatus.localizedCaseInsensitiveContains("refresh")
+    }
+
     var siteExportDetail: String {
         guard let lastSiteExportedAt else {
             return siteExportStatus
@@ -313,6 +317,10 @@ final class SiteClawStudio {
         }
 
         return "Saved \(workspaceLastSavedAt.formatted(date: .abbreviated, time: .shortened)). \(workspaceStatus)"
+    }
+
+    var hasGrowthToolkitAccess: Bool {
+        monthlyPrice >= 49
     }
 
     var workspaceAutosaveState: SiteClawWorkspaceAutosaveState {
@@ -639,7 +647,7 @@ final class SiteClawStudio {
 
         isDraftGenerated = true
         publishStage = .preview
-        siteExportStatus = "Draft changed. Refresh the site export when ready."
+        siteExportStatus = "Draft ready for preview."
         lastSiteExportedAt = nil
         messages.append(
             BuilderMessage(
@@ -697,7 +705,7 @@ final class SiteClawStudio {
         publishStage = .preview
         realtimeStatus = "Generated"
         realtimeConnectionDetail = "Website draft is ready for Preview."
-        siteExportStatus = "Draft changed. Refresh the site export when ready."
+        siteExportStatus = "AI draft ready for preview."
         lastSiteExportedAt = nil
         messages.append(BuilderMessage(role: .assistant, text: response.reply))
         addUpdate(
@@ -968,31 +976,128 @@ final class SiteClawStudio {
         let question = activeSuggestedFollowUp.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedAnswer.isEmpty, !question.isEmpty else { return nil }
 
-        appendTranscriptAnswer(normalizedAnswer)
-        _ = applyVoiceTranscriptToProfile()
+        let promptKind = latestVoiceCoachTurn?.promptKind ?? .custom
+        let cleanedAnswer = applyTargetedVoiceCoachFollowUpAnswer(
+            normalizedAnswer,
+            question: question,
+            promptKind: promptKind
+        )
+        appendFollowUpTranscript(question: question, answer: normalizedAnswer)
         activeSuggestedFollowUp = ""
         realtimeStatus = "Follow-up Saved"
-        realtimeConnectionDetail = "Saved the follow-up and refreshed the restaurant profile."
+        realtimeConnectionDetail = "Saved the follow-up without mixing it into the active voice step."
 
         let prompt = VoiceOnboardingPrompt(
             question: question,
             helperText: "AI coach follow-up",
-            capturedAnswer: normalizedAnswer,
+            capturedAnswer: cleanedAnswer,
             systemImage: "sparkles",
-            promptKind: .custom
+            promptKind: promptKind
         )
         return VoiceCoachRequest(
             studio: self,
             prompt: prompt,
             rawAnswer: normalizedAnswer,
-            cleanedAnswer: normalizedAnswer
+            cleanedAnswer: cleanedAnswer
         )
+    }
+
+    private func applyTargetedVoiceCoachFollowUpAnswer(
+        _ answer: String,
+        question: String,
+        promptKind: VoicePromptKind
+    ) -> String {
+        switch promptKind {
+        case .featuredDishes:
+            return applyFeaturedDishesFollowUpAnswer(answer)
+        case .ownerStory:
+            let story = VoicePromptAnswerInterpreter.cleanStoryAnswer(answer)
+            if !story.isEmpty {
+                restaurant.story = story
+                updateCapturedVoicePromptAnswer(for: .ownerStory, answer: story)
+                markSiteNeedsRefresh("AI coach follow-up updated the owner story. Refresh the site export when ready.")
+                return story
+            }
+        case .hours:
+            if TranscriptRestaurantExtractor.isLikelyHoursAnswer(answer) {
+                restaurant.hours = answer
+                updateCapturedVoicePromptAnswer(for: .hours, answer: answer)
+                markSiteNeedsRefresh("AI coach follow-up updated the restaurant hours. Refresh the site export when ready.")
+                return answer
+            }
+        case .restaurantName:
+            if let name = MissingDetailAnswerExtractor.restaurantName(from: answer) {
+                restaurant.name = name
+                updateCapturedVoicePromptAnswer(for: .restaurantName, answer: name)
+                markSiteNeedsRefresh("AI coach follow-up updated the restaurant name. Refresh the site export when ready.")
+                return name
+            }
+        case .cuisineLocation:
+            let cuisineLocation = TranscriptRestaurantExtractor.cuisineLocation(from: answer)
+            if !cuisineLocation.cuisine.isEmpty {
+                restaurant.cuisine = cuisineLocation.cuisine
+            }
+            if !cuisineLocation.city.isEmpty {
+                restaurant.neighborhood = cuisineLocation.city
+            }
+            let cleaned = [restaurant.cuisine, restaurant.neighborhood.isEmpty ? "" : "in \(restaurant.neighborhood)"]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: " ")
+            if !cleaned.isEmpty {
+                updateCapturedVoicePromptAnswer(for: .cuisineLocation, answer: cleaned)
+                markSiteNeedsRefresh("AI coach follow-up updated cuisine and location. Refresh the site export when ready.")
+                return cleaned
+            }
+        case .custom:
+            if question.localizedCaseInsensitiveContains("item")
+                || question.localizedCaseInsensitiveContains("seller")
+                || question.localizedCaseInsensitiveContains("menu") {
+                return applyFeaturedDishesFollowUpAnswer(answer)
+            }
+        }
+
+        return answer
+    }
+
+    private func applyFeaturedDishesFollowUpAnswer(_ answer: String) -> String {
+        let selectedItems = TranscriptRestaurantExtractor.followUpMenuItems(from: answer)
+        guard !selectedItems.isEmpty else { return answer }
+
+        restaurant.menuItems = mergeMenuItems(extracted: selectedItems, existing: restaurant.menuItems)
+        let cleanedAnswer = restaurant.menuItems.map { TranscriptRestaurantExtractor.menuLabel(for: $0) }.joined(separator: ", ")
+        updateCapturedVoicePromptAnswer(for: .featuredDishes, answer: cleanedAnswer)
+        markSiteNeedsRefresh("AI coach follow-up refined the featured dishes. Refresh the site export when ready.")
+        return cleanedAnswer
+    }
+
+    private func updateCapturedVoicePromptAnswer(for promptKind: VoicePromptKind, answer: String) {
+        guard let index = voicePrompts.firstIndex(where: { $0.promptKind == promptKind }) else { return }
+        voicePrompts[index].capturedAnswer = answer
+    }
+
+    private func appendFollowUpTranscript(question: String, answer: String) {
+        let entry = "Follow-up: \(question) Answer: \(answer)"
+        if voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            voiceTranscript = entry
+        } else if !voiceTranscript.localizedCaseInsensitiveContains(entry) {
+            voiceTranscript += " \(entry)"
+        }
+        pendingVoiceAnswer = ""
     }
 
     func markSiteNeedsRefresh(_ status: String = "Website details changed. Refresh the site export when ready.") {
         siteExportStatus = status
         lastSiteExportedAt = nil
         publishStage = isPublished ? .needsRepublish : .draft
+    }
+
+    func updateRestaurantBasic(
+        _ keyPath: WritableKeyPath<RestaurantProfile, String>,
+        to newValue: String
+    ) {
+        guard restaurant[keyPath: keyPath] != newValue else { return }
+        restaurant[keyPath: keyPath] = newValue
+        markSiteNeedsRefresh("Restaurant details changed. Refresh the site export when ready.")
     }
 
     func selectBillingPlan(_ plan: SiteClawBillingPlan) {
@@ -3495,6 +3600,20 @@ enum TranscriptRestaurantExtractor {
         }
 
         return "\(item.name) \(String(format: "$%.2f", price))"
+    }
+
+    static func followUpMenuItems(from answer: String) -> [MenuItem] {
+        let cleaned = VoiceTranscriptNormalizer.normalize(answer)
+            .replacingOccurrences(
+                of: #"\b(?:for sure|definitely|probably|i would pick|i'd pick|pick|choose|main homepage bestsellers?|homepage bestsellers?)\b"#,
+                with: " ",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return [] }
+
+        return extractMenuItems(from: "we feature \(cleaned)")
     }
 
     private static func cleanNameCandidate(_ candidate: String) -> String? {

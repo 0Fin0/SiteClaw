@@ -91,7 +91,7 @@ struct BuilderView: View {
                             ContactVisibilityView(studio: studio)
                         }
                         BuildCollapsibleSection(
-                            title: "Growth Toolkit",
+                            title: "Growth Toolkit (Beta)",
                             subtitle: growthToolkitSummary,
                             summary: growthToolkitSummary,
                             status: growthToolkitStatus,
@@ -230,13 +230,18 @@ struct BuilderView: View {
     }
 
     private var growthToolkitSummary: String {
+        guard studio.hasGrowthToolkitAccess else {
+            return "Growth or Pro plan required"
+        }
+
         let enabled = studio.restaurant.growthTools.enabledLabels
         guard !enabled.isEmpty else { return "No growth modules enabled" }
         return "\(enabled.count) module\(enabled.count == 1 ? "" : "s") enabled"
     }
 
     private var growthToolkitStatus: BuildSectionStatus {
-        studio.restaurant.growthTools.enabledLabels.isEmpty ? .optional : .ready
+        guard studio.hasGrowthToolkitAccess else { return .locked }
+        return studio.restaurant.growthTools.enabledLabels.isEmpty ? .optional : .ready
     }
 }
 
@@ -245,6 +250,7 @@ private enum BuildSectionStatus {
     case ready
     case optional
     case needsRefresh
+    case locked
 
     var title: String {
         switch self {
@@ -252,6 +258,7 @@ private enum BuildSectionStatus {
         case .ready: "Ready"
         case .optional: "Optional"
         case .needsRefresh: "Needs refresh"
+        case .locked: "Upgrade"
         }
     }
 
@@ -261,6 +268,7 @@ private enum BuildSectionStatus {
         case .ready: "checkmark.circle.fill"
         case .optional: "circle.dotted"
         case .needsRefresh: "arrow.clockwise.circle.fill"
+        case .locked: "lock.fill"
         }
     }
 
@@ -270,6 +278,7 @@ private enum BuildSectionStatus {
         case .ready: SiteClawTheme.mint
         case .optional: SiteClawTheme.sky
         case .needsRefresh: SiteClawTheme.coral
+        case .locked: SiteClawTheme.gold
         }
     }
 }
@@ -369,7 +378,7 @@ private struct HeroBuilderCard: View {
             return .needsInfo
         }
 
-        if studio.siteExportStatus.localizedCaseInsensitiveContains("refresh") {
+        if studio.isSiteExportStale {
             return .needsRefresh
         }
 
@@ -383,14 +392,21 @@ private struct RestaurantIntakeView: View {
     var body: some View {
         ClawCard {
             VStack(spacing: 12) {
-                LabeledTextField(label: "Restaurant Name", placeholder: "Enter restaurant name", text: $studio.restaurant.name)
-                LabeledTextField(label: "Cuisine", placeholder: "Enter cuisine or restaurant type", text: $studio.restaurant.cuisine)
-                LabeledTextField(label: "Location", placeholder: "Enter city or full location", text: $studio.restaurant.neighborhood)
-                LabeledTextField(label: "Hours", placeholder: "Enter operating hours", text: $studio.restaurant.hours)
-                LabeledTextField(label: "Owner Story", placeholder: "Add what makes the restaurant special", text: $studio.restaurant.story, axis: .vertical)
+                LabeledTextField(label: "Restaurant Name", placeholder: "Enter restaurant name", text: restaurantBasicBinding(\.name))
+                LabeledTextField(label: "Cuisine", placeholder: "Enter cuisine or restaurant type", text: restaurantBasicBinding(\.cuisine))
+                LabeledTextField(label: "Location", placeholder: "Enter city or full location", text: restaurantBasicBinding(\.neighborhood))
+                LabeledTextField(label: "Hours", placeholder: "Enter operating hours", text: restaurantBasicBinding(\.hours))
+                LabeledTextField(label: "Owner Story", placeholder: "Add what makes the restaurant special", text: restaurantBasicBinding(\.story), axis: .vertical)
                     .lineLimit(2...4)
             }
         }
+    }
+
+    private func restaurantBasicBinding(_ keyPath: WritableKeyPath<RestaurantProfile, String>) -> Binding<String> {
+        Binding(
+            get: { studio.restaurant[keyPath: keyPath] },
+            set: { studio.updateRestaurantBasic(keyPath, to: $0) }
+        )
     }
 }
 
@@ -1370,102 +1386,10 @@ private struct GrowthToolkitView: View {
 
     var body: some View {
         ClawCard {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Restaurant Growth Toolkit")
-                            .font(.headline)
-                            .foregroundStyle(SiteClawTheme.ink)
-                        Text("Optional modules that make SiteClaw feel like a working restaurant growth assistant.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    Button {
-                        isApplyingDemo = true
-                        studio.fillDemoGrowthTools()
-                        demoMessage = "Demo growth modules enabled."
-                    } label: {
-                        Label("Fill Demo Growth", systemImage: "sparkles")
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(SiteClawTheme.gold)
-                    .controlSize(.small)
-                }
-
-                if !studio.recommendedGrowthToolLabels.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Recommended for this site")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.secondary)
-                        FlowLayout(spacing: 8) {
-                            ForEach(studio.recommendedGrowthToolLabels, id: \.self) { label in
-                                StatusPill(title: label, systemImage: "sparkles", color: SiteClawTheme.mint)
-                            }
-                        }
-                    }
-                }
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 10)], spacing: 10) {
-                    GrowthToolToggle(
-                        title: "Specials",
-                        detail: "Promote seasonal or limited-time dishes.",
-                        systemImage: "sparkles",
-                        isOn: $studio.restaurant.growthTools.specialsEnabled
-                    )
-                    GrowthToolToggle(
-                        title: "Events",
-                        detail: "Show happy hour, music, pop-ups, or tastings.",
-                        systemImage: "calendar",
-                        isOn: $studio.restaurant.growthTools.eventsEnabled
-                    )
-                    GrowthToolToggle(
-                        title: "Catering Leads",
-                        detail: "Point catering inquiries to a clear contact path.",
-                        systemImage: "tray.full.fill",
-                        isOn: $studio.restaurant.growthTools.cateringLeadFormEnabled
-                    )
-                    GrowthToolToggle(
-                        title: "Gift Cards",
-                        detail: "Surface gift-card buying when a link exists.",
-                        systemImage: "giftcard.fill",
-                        isOn: $studio.restaurant.growthTools.giftCardsEnabled
-                    )
-                    GrowthToolToggle(
-                        title: "Review Links",
-                        detail: "Guide customers to approved profile links.",
-                        systemImage: "star.bubble.fill",
-                        isOn: $studio.restaurant.growthTools.reviewLinksEnabled
-                    )
-                    GrowthToolToggle(
-                        title: "QR Menu",
-                        detail: "Prepare the site for table tents and flyers.",
-                        systemImage: "qrcode",
-                        isOn: $studio.restaurant.growthTools.qrMenuEnabled
-                    )
-                    GrowthToolToggle(
-                        title: "Newsletter",
-                        detail: "Capture interest for future restaurant updates.",
-                        systemImage: "envelope.badge.fill",
-                        isOn: $studio.restaurant.growthTools.newsletterEnabled
-                    )
-                    GrowthToolToggle(
-                        title: "Analytics",
-                        detail: "Track lightweight launch and conversion signals later.",
-                        systemImage: "chart.bar.fill",
-                        isOn: $studio.restaurant.growthTools.analyticsEnabled
-                    )
-                }
-
-                if let demoMessage {
-                    Label(demoMessage, systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(SiteClawTheme.mint)
-                }
+            if studio.hasGrowthToolkitAccess {
+                unlockedGrowthToolkit
+            } else {
+                lockedGrowthToolkit
             }
         }
         .onChange(of: studio.restaurant.growthTools) { _, _ in
@@ -1475,6 +1399,166 @@ private struct GrowthToolkitView: View {
             }
             studio.markSiteNeedsRefresh("Growth tools changed. Refresh the site export when ready.")
         }
+    }
+
+    private var unlockedGrowthToolkit: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Restaurant Growth Toolkit (Beta)")
+                        .font(.headline)
+                        .foregroundStyle(SiteClawTheme.ink)
+                    Text("Optional modules that make SiteClaw feel like a working restaurant growth assistant.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    isApplyingDemo = true
+                    studio.fillDemoGrowthTools()
+                    demoMessage = "Demo growth modules enabled."
+                } label: {
+                    Label("Fill Demo Growth", systemImage: "sparkles")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(SiteClawTheme.gold)
+                .controlSize(.small)
+            }
+
+            if !studio.recommendedGrowthToolLabels.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Recommended for this site")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                    FlowLayout(spacing: 8) {
+                        ForEach(studio.recommendedGrowthToolLabels, id: \.self) { label in
+                            StatusPill(title: label, systemImage: "sparkles", color: SiteClawTheme.mint)
+                        }
+                    }
+                }
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 10)], spacing: 10) {
+                GrowthToolToggle(
+                    title: "Specials",
+                    detail: "Promote seasonal or limited-time dishes.",
+                    systemImage: "sparkles",
+                    isOn: $studio.restaurant.growthTools.specialsEnabled
+                )
+                GrowthToolToggle(
+                    title: "Events",
+                    detail: "Show happy hour, music, pop-ups, or tastings.",
+                    systemImage: "calendar",
+                    isOn: $studio.restaurant.growthTools.eventsEnabled
+                )
+                GrowthToolToggle(
+                    title: "Catering Leads",
+                    detail: "Point catering inquiries to a clear contact path.",
+                    systemImage: "tray.full.fill",
+                    isOn: $studio.restaurant.growthTools.cateringLeadFormEnabled
+                )
+                GrowthToolToggle(
+                    title: "Gift Cards",
+                    detail: "Surface gift-card buying when a link exists.",
+                    systemImage: "giftcard.fill",
+                    isOn: $studio.restaurant.growthTools.giftCardsEnabled
+                )
+                GrowthToolToggle(
+                    title: "Review Links",
+                    detail: "Guide customers to approved profile links.",
+                    systemImage: "star.bubble.fill",
+                    isOn: $studio.restaurant.growthTools.reviewLinksEnabled
+                )
+                GrowthToolToggle(
+                    title: "QR Menu",
+                    detail: "Prepare the site for table tents and flyers.",
+                    systemImage: "qrcode",
+                    isOn: $studio.restaurant.growthTools.qrMenuEnabled
+                )
+                GrowthToolToggle(
+                    title: "Newsletter",
+                    detail: "Capture interest for future restaurant updates.",
+                    systemImage: "envelope.badge.fill",
+                    isOn: $studio.restaurant.growthTools.newsletterEnabled
+                )
+                GrowthToolToggle(
+                    title: "Analytics",
+                    detail: "Track lightweight launch and conversion signals later.",
+                    systemImage: "chart.bar.fill",
+                    isOn: $studio.restaurant.growthTools.analyticsEnabled
+                )
+            }
+
+            if let demoMessage {
+                Label(demoMessage, systemImage: "checkmark.circle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SiteClawTheme.mint)
+            }
+        }
+    }
+
+    private var lockedGrowthToolkit: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                IconBadge(systemImage: "lock.fill", color: SiteClawTheme.gold, size: 42)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Growth Toolkit (Beta)")
+                        .font(.headline)
+                        .foregroundStyle(SiteClawTheme.ink)
+                    Text("Available on the Growth plan at $49/month and on Pro. Change plans from Account & Settings > Billing.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            GrowthPlanGateRow(
+                title: "Current Plan",
+                value: studio.accountSettings.billingPlan,
+                systemImage: "creditcard.fill"
+            )
+
+            GrowthPlanGateRow(
+                title: "Included With",
+                value: "Growth - $49/mo and Pro - $99/mo",
+                systemImage: "sparkles"
+            )
+        }
+    }
+}
+
+private struct GrowthPlanGateRow: View {
+    let title: String
+    let value: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(SiteClawTheme.gold)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(SiteClawTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(SiteClawTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -1700,15 +1784,27 @@ private struct BuildPrimaryActionBar: View {
     }
 
     private var actionTitle: String {
-        shouldOpenPreview ? "Open Preview" : "Generate Restaurant Website"
+        if shouldRefreshAndOpen {
+            return "Refresh & Open Preview"
+        }
+
+        return shouldOpenPreview ? "Open Preview" : "Generate Restaurant Website"
     }
 
     private var actionIcon: String {
-        shouldOpenPreview ? "iphone" : "sparkles"
+        if shouldRefreshAndOpen {
+            return "arrow.clockwise"
+        }
+
+        return shouldOpenPreview ? "iphone" : "sparkles"
     }
 
     private var actionDetail: String {
-        studio.isPublished
+        if shouldRefreshAndOpen {
+            return "Recent edits will be folded into the preview before it opens."
+        }
+
+        return studio.isPublished
             ? "Published. Refresh before republishing changes."
             : "Not published yet. Nothing goes live until you approve it."
     }
@@ -1719,10 +1815,18 @@ private struct BuildPrimaryActionBar: View {
 
     private func performAction() {
         if shouldOpenPreview {
+            if shouldRefreshAndOpen {
+                studio.generateDraft()
+            }
+
             continueToPreview?()
         } else {
             studio.generateDraft()
         }
+    }
+
+    private var shouldRefreshAndOpen: Bool {
+        shouldOpenPreview && studio.isSiteExportStale
     }
 }
 

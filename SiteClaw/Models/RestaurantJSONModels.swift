@@ -262,8 +262,16 @@ enum RestaurantJSONExporter {
             seoKeywords: draft.seoKeywords,
             fallback: "Restaurant"
         )
-        let city = restaurant.neighborhood
-        let cuisine = restaurant.cuisine.isEmpty ? "Local Restaurant" : restaurant.cuisine
+        let city = restaurant.neighborhood.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cuisine = restaurant.cuisine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Local Restaurant" : restaurant.cuisine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = ownerDescription(from: restaurant, draft: draft)
+        let tagline = liveSafeTagline(
+            restaurantName: name,
+            cuisine: cuisine,
+            city: city,
+            draftHeadline: draft.headline,
+            menuItems: restaurant.menuItems
+        )
         let hasOwnerProvidedPrices = restaurant.menuItems.contains { ($0.price ?? 0) > 0 }
 
         return RestaurantJSON(
@@ -272,8 +280,8 @@ enum RestaurantJSONExporter {
             lastUpdated: ISO8601DateFormatter().string(from: Date()),
             basics: RestaurantJSONBasics(
                 name: name,
-                tagline: draft.headline,
-                description: draft.subheadline,
+                tagline: tagline,
+                description: description,
                 cuisineType: cuisine
                     .components(separatedBy: CharacterSet(charactersIn: ",/&"))
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -294,8 +302,8 @@ enum RestaurantJSONExporter {
             hours: makeHours(from: restaurant.hours),
             menu: makeMenu(from: restaurant.menuItems, uploadedMenu: restaurant.uploadedMenu),
             seo: RestaurantJSONSEO(
-                title: "\(name) | \(cuisine) in \(city)",
-                description: draft.subheadline,
+                title: city.isEmpty ? "\(name) | \(cuisine)" : "\(name) | \(cuisine) in \(city)",
+                description: description,
                 keywords: draft.seoKeywords
             ),
             branding: RestaurantJSONBranding(
@@ -317,6 +325,69 @@ enum RestaurantJSONExporter {
             growthTools: restaurant.growthTools,
             designBrief: draft.designBrief
         )
+    }
+
+    private static func ownerDescription(from restaurant: RestaurantProfile, draft: WebsiteDraft) -> String {
+        let story = restaurant.story.trimmingCharacters(in: .whitespacesAndNewlines)
+        return story.isEmpty ? draft.subheadline : story
+    }
+
+    private static func liveSafeTagline(
+        restaurantName: String,
+        cuisine: String,
+        city: String,
+        draftHeadline: String,
+        menuItems: [MenuItem]
+    ) -> String {
+        let headline = draftHeadline.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = restaurantName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !headline.isEmpty,
+           (name.isEmpty || headline.localizedCaseInsensitiveContains(name)) {
+            return headline
+        }
+
+        return liveTagline(restaurantName: name, cuisine: cuisine, city: city, menuItems: menuItems)
+    }
+
+    private static func liveTagline(
+        restaurantName: String,
+        cuisine: String,
+        city: String,
+        menuItems: [MenuItem]
+    ) -> String {
+        let name = restaurantName.isEmpty ? "This restaurant" : restaurantName
+        let offer = customerOfferPhrase(cuisine: cuisine, menuItems: menuItems)
+
+        if city.isEmpty {
+            return "\(name) serves \(offer)"
+        }
+
+        return "\(name) serves \(offer) in \(city)"
+    }
+
+    private static func customerOfferPhrase(cuisine: String, menuItems: [MenuItem]) -> String {
+        let trimmedCuisine = cuisine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercasedCuisine = trimmedCuisine.lowercased()
+
+        if lowercasedCuisine.hasSuffix(" restaurant") {
+            let base = trimmedCuisine
+                .dropLast(" restaurant".count)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return base.isEmpty ? "fresh food" : "\(base) food"
+        }
+
+        if !trimmedCuisine.isEmpty && lowercasedCuisine != "local restaurant" {
+            return trimmedCuisine
+        }
+
+        let items = menuItems
+            .map(\.name)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+            .prefix(2)
+
+        return items.isEmpty ? "fresh food" : items.joined(separator: " and ")
     }
 
     static func prettyJSONString(from restaurantJSON: RestaurantJSON) -> String {

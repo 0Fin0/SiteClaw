@@ -964,13 +964,13 @@ struct SiteClawBillingPlan: Identifiable, Hashable {
             name: "Growth",
             price: 49,
             subtitle: "Adds stronger owner tools for active menu and domain updates.",
-            features: ["Custom domain setup", "Menu upload updates", "Review-ready SEO fields"]
+            features: ["Custom domain setup", "Menu upload updates", "Growth Toolkit beta"]
         ),
         SiteClawBillingPlan(
             name: "Pro",
             price: 99,
             subtitle: "A placeholder path for multi-location and analytics work.",
-            features: ["Multi-location roadmap", "Analytics placeholder", "Priority publish support"]
+            features: ["Multi-location roadmap", "Growth Toolkit beta", "Priority publish support"]
         )
     ]
 

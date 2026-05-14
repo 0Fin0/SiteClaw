@@ -14,6 +14,7 @@ struct TalkToSiteClawView: View {
     @State private var backendHealthError: String?
     @State private var isCheckingBackend = false
     @State private var voiceResetID = UUID()
+    @State private var isFollowUpListening = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #endif
@@ -32,12 +33,17 @@ struct TalkToSiteClawView: View {
                         if usesCompactVoiceLayout {
                             GuidedQuestionCard(studio: studio, isRecording: isListening)
                                 .id(Self.guidedQuestionID)
-                            VoiceCoachCard(studio: studio)
+                            VoiceCoachCard(
+                                studio: studio,
+                                isMainVoiceListening: $isListening,
+                                isFollowUpVoiceListening: $isFollowUpListening
+                            )
                             VoiceHeroCard(
                                 studio: studio,
                                 isListening: $isListening,
                                 resetID: voiceResetID,
-                                isCompactLayout: usesCompactVoiceLayout
+                                isCompactLayout: usesCompactVoiceLayout,
+                                isPausedByFollowUp: isFollowUpListening
                             )
                             DemoReadinessCard(
                                 studio: studio,
@@ -51,11 +57,16 @@ struct TalkToSiteClawView: View {
                                 studio: studio,
                                 isListening: $isListening,
                                 resetID: voiceResetID,
-                                isCompactLayout: usesCompactVoiceLayout
+                                isCompactLayout: usesCompactVoiceLayout,
+                                isPausedByFollowUp: isFollowUpListening
                             )
                             GuidedQuestionCard(studio: studio, isRecording: isListening)
                                 .id(Self.guidedQuestionID)
-                            VoiceCoachCard(studio: studio)
+                            VoiceCoachCard(
+                                studio: studio,
+                                isMainVoiceListening: $isListening,
+                                isFollowUpVoiceListening: $isFollowUpListening
+                            )
                             DemoReadinessCard(
                                 studio: studio,
                                 backendHealth: backendHealth,
@@ -371,6 +382,7 @@ private struct VoiceHeroCard: View {
     @Binding var isListening: Bool
     let resetID: UUID
     let isCompactLayout: Bool
+    let isPausedByFollowUp: Bool
     @State private var sessionTask: Task<Void, Never>?
     @State private var realtimeAudioStreamer: RealtimeAudioStreamingService?
     @State private var startupRecoveryTask: Task<Void, Never>?
@@ -410,6 +422,16 @@ private struct VoiceHeroCard: View {
         }
         .onChange(of: resetID) { _, _ in
             stopRealtimeStreaming(updateStudio: false)
+        }
+        .onChange(of: isListening) { _, newValue in
+            if !newValue {
+                stopRealtimeStreaming()
+            }
+        }
+        .onChange(of: isPausedByFollowUp) { _, isPaused in
+            if isPaused {
+                stopRealtimeStreaming()
+            }
         }
         .padding(isCompactLayout ? 14 : 18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -488,6 +510,7 @@ private struct VoiceHeroCard: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(isListening ? SiteClawTheme.coral : SiteClawTheme.navy)
+            .disabled(isPausedByFollowUp)
 
             Button {
                 stopRealtimeStreaming()
@@ -708,6 +731,10 @@ private struct VoiceHeroCard: View {
     }
 
     private var displayStatusTitle: String {
+        if isPausedByFollowUp {
+            return "Follow-up voice active"
+        }
+
         switch studio.realtimeStatus {
         case "Ready":
             return "Ready to record"
@@ -737,6 +764,10 @@ private struct VoiceHeroCard: View {
     }
 
     private var displayStatusDetail: String {
+        if isPausedByFollowUp {
+            return "Main build by voice is paused while you answer the coach follow-up."
+        }
+
         if !studio.pendingVoiceAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Review what SiteClaw heard, then tap Save Answer."
         }
@@ -986,96 +1017,188 @@ private struct GuidedQuestionCard: View {
 
 private struct VoiceCoachCard: View {
     @Bindable var studio: SiteClawStudio
+    @Binding var isMainVoiceListening: Bool
+    @Binding var isFollowUpVoiceListening: Bool
     @State private var followUpAnswer = ""
     @State private var coachTask: Task<Void, Never>?
+    @State private var followUpVoiceTask: Task<Void, Never>?
+    @State private var followUpAudioStreamer: RealtimeAudioStreamingService?
+    @State private var followUpVoiceStatus = ""
+    @State private var followUpAudioLevel = 0.0
+    @State private var isExpanded = false
 
     var body: some View {
         ClawCard {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: studio.isVoiceCoachWorking ? "sparkles" : "wand.and.stars")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(statusColor)
-                        .frame(width: 34, height: 34)
-                        .background(statusColor.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Voice Coach")
-                            .font(.headline)
-                        Text(studio.voiceCoachStatus)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    withAnimation(.snappy(duration: 0.25)) {
+                        isExpanded.toggle()
                     }
-
-                    Spacer()
-
-                    if let turn = studio.latestVoiceCoachTurn {
-                        LabelPill(
-                            title: turn.confidence.displayName,
-                            systemImage: confidenceIcon(for: turn.confidence),
-                            color: confidenceColor(for: turn.confidence)
-                        )
-                    }
+                } label: {
+                    coachHeader
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isExpanded ? "Collapse voice coach" : "Expand voice coach")
 
-                if studio.isVoiceCoachWorking {
-                    ProgressView("Reviewing answer and site strategy")
-                        .font(.caption)
-                        .tint(SiteClawTheme.coral)
-                }
-
-                if let turn = studio.latestVoiceCoachTurn {
-                    VStack(alignment: .leading, spacing: 8) {
-                        CoachFactRow(title: "What I heard", value: turn.cleanedAnswer, systemImage: "text.quote")
-
-                        if turn.hasMissingDetails {
-                            CoachTagSection(title: "Missing Details", tags: turn.missingDetails, color: SiteClawTheme.gold)
-                        }
-
-                        if !turn.designNotes.isEmpty {
-                            CoachTagSection(title: "Design Notes", tags: turn.designNotes, color: SiteClawTheme.sky)
-                        }
-                    }
-                } else if !studio.isVoiceCoachWorking {
-                    Text("After each saved answer, SiteClaw will clean the response, flag gaps, and explain how it changes the website direction.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if !studio.activeSuggestedFollowUp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Suggested follow-up", systemImage: "questionmark.bubble.fill")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(SiteClawTheme.coral)
-                        Text(studio.activeSuggestedFollowUp)
-                            .font(.subheadline.weight(.semibold))
-                            .fixedSize(horizontal: false, vertical: true)
-                        TextField("Answer the follow-up", text: $followUpAnswer, axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(2...4)
-
-                        Button {
-                            applyFollowUp()
-                        } label: {
-                            Label("Apply Follow-up", systemImage: "checkmark.sparkles")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(SiteClawTheme.coral)
-                        .disabled(followUpAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                    .padding(12)
-                    .background(SiteClawTheme.coral.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                if isExpanded {
+                    coachDetails
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         }
         .onDisappear {
             coachTask?.cancel()
+            stopFollowUpVoice(status: "")
         }
+    }
+
+    private var coachHeader: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: studio.isVoiceCoachWorking ? "sparkles" : "wand.and.stars")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(statusColor)
+                .frame(width: 34, height: 34)
+                .background(statusColor.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text("Voice Coach")
+                        .font(.headline)
+
+                    if hasSuggestedFollowUp {
+                        Image(systemName: "questionmark.bubble.fill")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(SiteClawTheme.coral)
+                            .accessibilityHidden(true)
+                    }
+                }
+
+                Text(collapsedStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            if let turn = studio.latestVoiceCoachTurn {
+                LabelPill(
+                    title: turn.confidence.displayName,
+                    systemImage: confidenceIcon(for: turn.confidence),
+                    color: confidenceColor(for: turn.confidence)
+                )
+            }
+
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                .padding(.top, 6)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var coachDetails: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if studio.isVoiceCoachWorking {
+                ProgressView("Reviewing answer and site strategy")
+                    .font(.caption)
+                    .tint(SiteClawTheme.coral)
+            }
+
+            if let turn = studio.latestVoiceCoachTurn {
+                VStack(alignment: .leading, spacing: 8) {
+                    CoachFactRow(title: "What I heard", value: turn.cleanedAnswer, systemImage: "text.quote")
+
+                    if turn.hasMissingDetails {
+                        CoachTagSection(title: "Missing Details", tags: turn.missingDetails, color: SiteClawTheme.gold)
+                    }
+
+                    if !turn.designNotes.isEmpty {
+                        CoachTagSection(title: "Design Notes", tags: turn.designNotes, color: SiteClawTheme.sky)
+                    }
+                }
+            } else if !studio.isVoiceCoachWorking {
+                Text("After each saved answer, SiteClaw will clean the response, flag gaps, and explain how it changes the website direction.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if hasSuggestedFollowUp {
+                followUpEditor
+            }
+        }
+    }
+
+    private var followUpEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Suggested follow-up", systemImage: "questionmark.bubble.fill")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(SiteClawTheme.coral)
+            Text(studio.activeSuggestedFollowUp)
+                .font(.subheadline.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button {
+                    toggleFollowUpVoice()
+                } label: {
+                    Label(
+                        isFollowUpVoiceListening ? "Stop Follow-up Voice" : "Answer by Voice",
+                        systemImage: isFollowUpVoiceListening ? "stop.fill" : "mic.fill"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(isFollowUpVoiceListening ? SiteClawTheme.coral : SiteClawTheme.navy)
+
+                if isFollowUpVoiceListening {
+                    AudioLevelMeter(level: followUpAudioLevel)
+                        .frame(maxWidth: 92)
+                }
+            }
+
+            if !followUpVoiceStatus.isEmpty {
+                Text(followUpVoiceStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            TextField("Answer the follow-up", text: $followUpAnswer, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(2...4)
+
+            Button {
+                applyFollowUp()
+            } label: {
+                Label("Apply Follow-up", systemImage: "checkmark.sparkles")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(SiteClawTheme.coral)
+            .disabled(followUpAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isFollowUpVoiceListening)
+        }
+        .padding(12)
+        .background(SiteClawTheme.coral.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var hasSuggestedFollowUp: Bool {
+        !studio.activeSuggestedFollowUp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var collapsedStatus: String {
+        if hasSuggestedFollowUp {
+            return "Follow-up ready. Expand to answer."
+        }
+
+        return studio.voiceCoachStatus
     }
 
     private var statusColor: Color {
@@ -1091,8 +1214,10 @@ private struct VoiceCoachCard: View {
     }
 
     private func applyFollowUp() {
+        stopFollowUpVoice(status: "")
         guard let request = studio.applyVoiceCoachFollowUpAnswer(followUpAnswer) else { return }
         followUpAnswer = ""
+        followUpVoiceStatus = ""
         coachTask?.cancel()
         studio.beginVoiceCoachTurn(for: request)
         coachTask = Task {
@@ -1111,6 +1236,115 @@ private struct VoiceCoachCard: View {
                 }
             }
         }
+    }
+
+    private func toggleFollowUpVoice() {
+        if isFollowUpVoiceListening {
+            stopFollowUpVoice(status: "Follow-up voice paused. Continue main build by voice when ready.")
+        } else {
+            startFollowUpVoice()
+        }
+    }
+
+    private func startFollowUpVoice() {
+        followUpVoiceTask?.cancel()
+        followUpAudioStreamer?.stop()
+        followUpAudioStreamer = nil
+        followUpAudioLevel = 0
+        followUpVoiceStatus = "Starting follow-up voice. Main build by voice is paused."
+        isMainVoiceListening = false
+        isFollowUpVoiceListening = true
+
+        let restaurantName = studio.restaurant.name
+        followUpVoiceTask = Task {
+            do {
+                let response = try await RealtimeSessionService().createSession(restaurantName: restaurantName)
+                guard !Task.isCancelled else { return }
+
+                let streamer = await MainActor.run {
+                    let streamer = RealtimeAudioStreamingService()
+                    followUpAudioStreamer = streamer
+                    followUpVoiceStatus = "Listening for your follow-up answer."
+                    return streamer
+                }
+
+                try await streamer.start(session: response, restaurantName: restaurantName) { event in
+                    Task { @MainActor in
+                        handleFollowUpVoiceEvent(event)
+                    }
+                }
+
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    finishFollowUpVoice(status: "Follow-up voice stopped. Continue main build by voice when ready.")
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    finishFollowUpVoice(status: "Follow-up voice unavailable. You can still type the answer.")
+                }
+            }
+        }
+    }
+
+    private func handleFollowUpVoiceEvent(_ event: RealtimeAudioStreamingEvent) {
+        switch event {
+        case .webSocketConnected:
+            followUpVoiceStatus = "Follow-up voice connected."
+        case .microphoneStarted(_, _):
+            followUpVoiceStatus = "Listening for your follow-up answer."
+        case .audioLevel(let level):
+            followUpAudioLevel = level
+        case .audioChunkSent(_, _):
+            followUpVoiceStatus = "Listening. Answer only the suggested follow-up."
+        case .speechStarted:
+            followUpVoiceStatus = "Speech detected."
+        case .speechStopped:
+            followUpVoiceStatus = "Pause detected. Preparing the follow-up answer."
+        case .inputTranscriptDelta(let delta):
+            guard !delta.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            followUpVoiceStatus = "Heard: \(delta)"
+        case .inputTranscriptCompleted(let transcript):
+            let normalized = VoiceTranscriptNormalizer.normalize(transcript)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { return }
+            mergeFollowUpVoiceAnswer(normalized)
+            finishFollowUpVoice(status: "Follow-up captured. Tap Apply Follow-up when it looks right.")
+        case .warning(let message), .error(let message):
+            followUpVoiceStatus = message
+        default:
+            break
+        }
+    }
+
+    private func mergeFollowUpVoiceAnswer(_ answer: String) {
+        let current = followUpAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if current.isEmpty {
+            followUpAnswer = answer
+        } else if !current.localizedCaseInsensitiveContains(answer) {
+            followUpAnswer = "\(current) \(answer)"
+        }
+    }
+
+    private func stopFollowUpVoice(status: String) {
+        followUpVoiceTask?.cancel()
+        followUpVoiceTask = nil
+        followUpAudioStreamer?.stop()
+        followUpAudioStreamer = nil
+        followUpAudioLevel = 0
+        isFollowUpVoiceListening = false
+        if !status.isEmpty {
+            followUpVoiceStatus = status
+        }
+    }
+
+    private func finishFollowUpVoice(status: String) {
+        followUpVoiceTask = nil
+        followUpAudioStreamer?.stop()
+        followUpAudioStreamer = nil
+        followUpAudioLevel = 0
+        isFollowUpVoiceListening = false
+        followUpVoiceStatus = status
     }
 
     private func confidenceColor(for confidence: VoiceCoachConfidence) -> Color {

@@ -843,6 +843,50 @@ final class SiteClawCoreTests: XCTestCase {
         XCTAssertFalse(studio.restaurant.story.contains("Sunset Grill is an American burger"))
     }
 
+    func testVoiceCoachMenuFollowUpNarrowsFeaturedDishesWithoutAppendingToActiveStep() {
+        var profile = RestaurantProfile.sample
+        profile.menuItems = [
+            MenuItem(name: "Arepas", description: "Corn cakes with savory fillings.", price: nil),
+            MenuItem(name: "Tostones", description: "Crispy plantains.", price: nil),
+            MenuItem(name: "Empanadas", description: "Hand pies with seasoned fillings.", price: nil)
+        ]
+        let studio = SiteClawStudio(
+            restaurant: profile,
+            draft: .sample,
+            messages: [],
+            updates: [],
+            metrics: []
+        )
+        let featuredIndex = try! XCTUnwrap(studio.voicePrompts.firstIndex { $0.promptKind == .featuredDishes })
+        studio.activeVoicePromptIndex = featuredIndex
+        studio.voicePrompts[featuredIndex].capturedAnswer = "Arepas, Tostones, Empanadas"
+        studio.pendingVoiceAnswer = "Arepas, Tostones, Empanadas"
+        studio.activeSuggestedFollowUp = "Which 1-2 items should be the main homepage best sellers?"
+        studio.voiceCoachTurns = [
+            VoiceCoachTurn(
+                promptKind: .featuredDishes,
+                question: studio.voicePrompts[featuredIndex].question,
+                rawAnswer: "Arepas, tostones, empanadas",
+                cleanedAnswer: "Arepas, Tostones, Empanadas",
+                confidence: .medium,
+                missingDetails: [],
+                suggestedFollowUp: studio.activeSuggestedFollowUp,
+                archetypeHint: nil,
+                designNotes: [],
+                statusMessage: "Pick one or two."
+            )
+        ]
+
+        let request = studio.applyVoiceCoachFollowUpAnswer("Arepas and empanadas for sure")
+
+        XCTAssertEqual(request?.promptKind, VoicePromptKind.featuredDishes.rawValue)
+        XCTAssertEqual(studio.restaurant.menuItems.map(\.name), ["Arepas", "Empanadas"])
+        XCTAssertEqual(studio.voicePrompts[featuredIndex].capturedAnswer, "Arepas, Empanadas")
+        XCTAssertEqual(studio.pendingVoiceAnswer, "")
+        XCTAssertTrue(studio.voiceTranscript.contains("Follow-up:"))
+        XCTAssertFalse(studio.voicePrompts[featuredIndex].capturedAnswer.localizedCaseInsensitiveContains("tostones"))
+    }
+
     func testApplyingProfileExtractionCannotInventConversionLinks() {
         let response = ProfileExtractionResponse(
             reply: "Polished profile.",
@@ -890,6 +934,18 @@ final class SiteClawCoreTests: XCTestCase {
         XCTAssertEqual(SiteClawBillingPlan.options.map(\.name), ["Starter", "Growth", "Pro"])
         XCTAssertEqual(SiteClawBillingPlan.options[1].displayName, "Growth - $49/mo")
         XCTAssertEqual(SiteClawBillingPlan.options[2].features.count, 3)
+
+        let studio = SiteClawStudio(
+            restaurant: .sample,
+            draft: .sample,
+            messages: [],
+            updates: [],
+            metrics: [],
+            monthlyPrice: 19
+        )
+        XCTAssertFalse(studio.hasGrowthToolkitAccess)
+        studio.selectBillingPlan(SiteClawBillingPlan.options[1])
+        XCTAssertTrue(studio.hasGrowthToolkitAccess)
     }
 
     func testFillDemoVisitDetailsPopulatesContactAndMarksExportStale() {
@@ -913,6 +969,27 @@ final class SiteClawCoreTests: XCTestCase {
         XCTAssertEqual(studio.restaurant.cateringEmail, "catering@example.com")
         XCTAssertNil(studio.lastSiteExportedAt)
         XCTAssertEqual(studio.siteExportStatus, "Demo visit details added. Refresh the site export when ready.")
+    }
+
+    func testUpdatingRestaurantBasicsMarksExportStale() {
+        let studio = SiteClawStudio(
+            restaurant: .sample,
+            draft: .sample,
+            messages: [],
+            updates: [],
+            metrics: [],
+            siteExportStatus: "sunset-grill-index.html is ready to save or share.",
+            lastSiteExportedAt: Date(),
+            publishStage: .preview
+        )
+
+        studio.updateRestaurantBasic(\.story, to: "The atmosphere, the hospitality, the smell in the air")
+
+        XCTAssertEqual(studio.restaurant.story, "The atmosphere, the hospitality, the smell in the air")
+        XCTAssertNil(studio.lastSiteExportedAt)
+        XCTAssertTrue(studio.isSiteExportStale)
+        XCTAssertEqual(studio.siteExportStatus, "Restaurant details changed. Refresh the site export when ready.")
+        XCTAssertEqual(studio.publishStage, .draft)
     }
 
     func testFillDemoConversionLinksPopulatesAllFeatureURLs() {
@@ -1268,6 +1345,25 @@ final class SiteClawCoreTests: XCTestCase {
         XCTAssertFalse(export.html.contains("Ready for owner review"))
         XCTAssertFalse(export.html.contains("This website draft is ready to refine."))
         XCTAssertFalse(export.html.contains("Generated by SiteClaw"))
+    }
+
+    func testGeneratedSiteExportUsesCurrentRestaurantStoryOverStaleSunsetDraft() {
+        var profile = RestaurantProfile.sample
+        profile.name = "Plata Catering"
+        profile.cuisine = "Venezuelan food"
+        profile.neighborhood = "San Diego"
+        profile.story = "The atmosphere, the hospitality, the smell in the air"
+
+        let json = RestaurantJSONExporter.makeRestaurantJSON(from: profile, draft: .sample)
+        let export = GeneratedSiteRenderer.makeExport(from: json, draft: .sample)
+
+        XCTAssertEqual(json.basics.name, "Plata Catering")
+        XCTAssertEqual(json.basics.description, "The atmosphere, the hospitality, the smell in the air")
+        XCTAssertEqual(json.seo.description, "The atmosphere, the hospitality, the smell in the air")
+        XCTAssertEqual(json.basics.tagline, "Plata Catering serves Venezuelan food in San Diego")
+        XCTAssertTrue(export.html.contains("The atmosphere, the hospitality, the smell in the air"))
+        XCTAssertTrue(export.html.contains("Plata Catering serves Venezuelan food in San Diego"))
+        XCTAssertFalse(export.html.contains("Sunset Grill serves American burgers"))
     }
 
     func testGeneratedSiteExportEmbedsUploadedMenuAsset() {

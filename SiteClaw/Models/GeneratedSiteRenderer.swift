@@ -41,13 +41,21 @@ enum GeneratedSiteRenderer {
         let bodyClass = "archetype-\(archetype.rawValue)"
         let rawRestaurantName = data.basics.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let restaurantName = escape(data.basics.name)
-        let tagline = escape(data.basics.tagline.isEmpty ? draft.headline : data.basics.tagline)
         let story = escape(publicStory(from: data.basics.description))
-        let cuisine = escape(data.basics.cuisineType.joined(separator: " / "))
+        let cuisineText = data.basics.cuisineType.joined(separator: " / ")
+        let cuisine = escape(cuisineText)
         let address = data.contact.address
         let addressLine = fullAddressLine(from: address)
         let addressDisplay = escape(addressLine.isEmpty ? "Location coming soon" : addressLine)
         let locationName = customerLocationName(from: address)
+        let tagline = escape(
+            currentHeroTagline(
+                from: data.basics.tagline.isEmpty ? draft.headline : data.basics.tagline,
+                restaurantName: rawRestaurantName,
+                cuisine: cuisineText,
+                locationName: locationName
+            )
+        )
         let phone = data.contact.phone.trimmingCharacters(in: .whitespacesAndNewlines)
         let phoneHref = phoneHref(from: phone)
         let phoneCardHTML = phone.isEmpty
@@ -1230,6 +1238,49 @@ enum GeneratedSiteRenderer {
         }
 
         return "Check the menu, hours, and location before your next visit."
+    }
+
+    private static func currentHeroTagline(
+        from rawTagline: String,
+        restaurantName: String,
+        cuisine: String,
+        locationName: String
+    ) -> String {
+        let tagline = rawTagline.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = restaurantName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !tagline.isEmpty,
+           (name.isEmpty || tagline.localizedCaseInsensitiveContains(name) || !tagline.localizedCaseInsensitiveContains("serves")) {
+            return tagline
+        }
+
+        let offer = customerOfferPhrase(cuisine: cuisine)
+        let displayName = name.isEmpty ? "This restaurant" : name
+        let location = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if location.isEmpty {
+            return "\(displayName) serves \(offer)"
+        }
+
+        return "\(displayName) serves \(offer) in \(location)"
+    }
+
+    private static func customerOfferPhrase(cuisine: String) -> String {
+        let trimmedCuisine = cuisine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercasedCuisine = trimmedCuisine.lowercased()
+
+        if lowercasedCuisine.hasSuffix(" restaurant") {
+            let base = trimmedCuisine
+                .dropLast(" restaurant".count)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return base.isEmpty ? "fresh food" : "\(base) food"
+        }
+
+        if !trimmedCuisine.isEmpty && lowercasedCuisine != "local restaurant" {
+            return trimmedCuisine
+        }
+
+        return "fresh food"
     }
 
     private static func makeVisitMenuPhrase(from menu: RestaurantJSONMenu) -> String {
