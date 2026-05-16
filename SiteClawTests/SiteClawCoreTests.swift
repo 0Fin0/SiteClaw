@@ -403,6 +403,192 @@ final class SiteClawCoreTests: XCTestCase {
         XCTAssertFalse(studio.restaurant.story.localizedCaseInsensitiveContains("Plata Catering"))
     }
 
+    func testVoicePipelineEvalCleansRestaurantNameVariants() {
+        let cases = [
+            ("Um, the name of the restaurant is Thai Palace.", "Thai Palace"),
+            ("So it is called La Cocina de Maria, you know.", "La Cocina De Maria"),
+            ("My restaurant name Plata Catering.", "Plata Catering")
+        ]
+
+        for (rawAnswer, expectedName) in cases {
+            let cleaned = VoicePromptAnswerInterpreter.interpret(
+                promptKind: .restaurantName,
+                promptIndex: 0,
+                extractedAnswer: "",
+                fallbackAnswer: rawAnswer
+            )
+
+            XCTAssertEqual(cleaned, expectedName, "Failed restaurant-name eval for: \(rawAnswer)")
+        }
+    }
+
+    func testVoicePipelineEvalKeepsCuisineOutOfHoursAndExportsSpecialSunday() {
+        let transcript = """
+        My restaurant name is Plata Catering. We do Venezuelan food in San Diego. \
+        Hours are Tue-Sat 10 AM to 5 PM, special Sunday 11 AM to 3 PM. \
+        We do Venezuelan food with arepas and empanadas.
+        """
+
+        let extraction = TranscriptRestaurantExtractor.extract(from: transcript)
+        let profile = extraction.profile
+        let json = RestaurantJSONExporter.makeRestaurantJSON(from: profile, draft: .placeholder)
+
+        XCTAssertEqual(profile.name, "Plata Catering")
+        XCTAssertEqual(profile.cuisine, "Venezuelan restaurant")
+        XCTAssertEqual(profile.neighborhood, "San Diego")
+        XCTAssertTrue(profile.hours.localizedCaseInsensitiveContains("Tue-Sat"))
+        XCTAssertTrue(profile.hours.localizedCaseInsensitiveContains("Sunday"))
+        XCTAssertFalse(profile.hours.localizedCaseInsensitiveContains("Venezuelan"))
+        XCTAssertTrue(json.hours.monday.isEmpty)
+        XCTAssertEqual(json.hours.tuesday.first?.open, "10:00")
+        XCTAssertEqual(json.hours.saturday.first?.close, "17:00")
+        XCTAssertEqual(json.hours.sunday.first?.open, "11:00")
+        XCTAssertEqual(json.hours.sunday.first?.close, "15:00")
+    }
+
+    func testVoicePipelineEvalCapturesNoPriceFeaturedDishList() {
+        let studio = SiteClawStudio(
+            restaurant: .empty,
+            draft: .placeholder,
+            messages: [],
+            updates: [],
+            metrics: [],
+            voiceTranscript: "",
+            pendingVoiceAnswer: "Arepas tostones and empanadas",
+            activeVoicePromptIndex: 3,
+            isDraftGenerated: false
+        )
+
+        studio.captureCurrentVoicePrompt()
+
+        XCTAssertEqual(studio.restaurant.menuItems.map(\.name), ["Arepas", "Tostones", "Empanadas"])
+        XCTAssertEqual(studio.voicePrompts[3].capturedAnswer, "Arepas, Tostones, Empanadas")
+        XCTAssertTrue(studio.restaurant.menuItems.allSatisfy { $0.price == nil })
+    }
+
+    func testVoicePipelineEvalExtractsMenuItemsAndPrices() {
+        let transcript = """
+        We feature arepas for $12, empanadas for $14.50, and tostones for $8.
+        """
+
+        let extraction = TranscriptRestaurantExtractor.extract(from: transcript)
+
+        XCTAssertEqual(extraction.profile.menuItems.map(\.name), ["Arepas", "Empanadas", "Tostones"])
+        XCTAssertEqual(extraction.profile.menuItems.map(\.price), [12, 14.50, 8])
+    }
+
+    func testVoicePipelineEvalRepairsTuesdaySaturdaySundayMishearing() {
+        let transcript = """
+        My restaurant is called Plata Catering. We do Venezuelan food in San Diego. \
+        We are open Tuesday through Saturday from 10 AM to 5 PM and Saturday from 11 AM to 3 PM.
+        """
+
+        let extraction = TranscriptRestaurantExtractor.extract(from: transcript)
+        let profile = extraction.profile
+        let json = RestaurantJSONExporter.makeRestaurantJSON(from: profile, draft: .placeholder)
+
+        XCTAssertTrue(profile.hours.contains("Tuesday through Saturday"))
+        XCTAssertTrue(profile.hours.contains("Sunday"))
+        XCTAssertFalse(profile.hours.contains("and Saturday from 11 AM to 3 PM"))
+        XCTAssertEqual(json.hours.tuesday.first?.open, "10:00")
+        XCTAssertEqual(json.hours.saturday.first?.close, "17:00")
+        XCTAssertEqual(json.hours.sunday.first?.open, "11:00")
+        XCTAssertEqual(json.hours.sunday.first?.close, "15:00")
+    }
+
+    func testVoicePipelineEvalPreventsCrossFieldLeakageFromFullTranscript() {
+        let transcript = """
+        My restaurant is called Plata Catering. We do Venezuelan food in San Diego. \
+        We are open Tuesday through Saturday from 10 AM to 5 PM and Sunday from 11 AM to 3 PM. \
+        We feature arepas for $12 and empanadas for $14. \
+        What makes us special is the atmosphere, hospitality, and the smell in the air.
+        """
+
+        let extraction = TranscriptRestaurantExtractor.extract(from: transcript)
+        let profile = extraction.profile
+        let menuNames = profile.menuItems.map(\.name)
+
+        XCTAssertEqual(profile.name, "Plata Catering")
+        XCTAssertEqual(profile.cuisine, "Venezuelan restaurant")
+        XCTAssertEqual(profile.neighborhood, "San Diego")
+        XCTAssertFalse(profile.hours.localizedCaseInsensitiveContains("Venezuelan"))
+        XCTAssertFalse(profile.hours.localizedCaseInsensitiveContains("Arepas"))
+        XCTAssertFalse(profile.hours.localizedCaseInsensitiveContains("atmosphere"))
+        XCTAssertEqual(menuNames, ["Arepas", "Empanadas"])
+        XCTAssertFalse(menuNames.contains("Venezuelan Food In San Diego"))
+        XCTAssertFalse(profile.story.localizedCaseInsensitiveContains("10 AM"))
+        XCTAssertFalse(profile.story.localizedCaseInsensitiveContains("Arepas"))
+    }
+
+    func testVoicePipelineEvalFollowUpNarrowsDishesWithoutDuplicatingOriginalAnswer() {
+        var profile = RestaurantProfile.empty
+        profile.menuItems = [
+            MenuItem(name: "Arepas", description: "", price: nil),
+            MenuItem(name: "Tostones", description: "", price: nil),
+            MenuItem(name: "Empanadas", description: "", price: nil)
+        ]
+        let studio = SiteClawStudio(
+            restaurant: profile,
+            draft: .placeholder,
+            messages: [],
+            updates: [],
+            metrics: [],
+            voiceTranscript: "",
+            pendingVoiceAnswer: "Arepas, Tostones, Empanadas",
+            activeVoicePromptIndex: 3,
+            isDraftGenerated: false
+        )
+        studio.voicePrompts[3].capturedAnswer = "Arepas, Tostones, Empanadas"
+        studio.activeSuggestedFollowUp = "Which 1-2 should be the main homepage best sellers?"
+        studio.voiceCoachTurns = [
+            VoiceCoachTurn(
+                promptKind: .featuredDishes,
+                question: studio.voicePrompts[3].question,
+                rawAnswer: "Arepas, Tostones, Empanadas",
+                cleanedAnswer: "Arepas, Tostones, Empanadas",
+                confidence: .medium,
+                missingDetails: [],
+                suggestedFollowUp: studio.activeSuggestedFollowUp,
+                archetypeHint: nil,
+                designNotes: [],
+                statusMessage: "Pick one or two."
+            )
+        ]
+
+        let request = studio.applyVoiceCoachFollowUpAnswer("Arepas and empanadas for sure")
+
+        XCTAssertEqual(request?.promptKind, VoicePromptKind.featuredDishes.rawValue)
+        XCTAssertEqual(studio.restaurant.menuItems.map(\.name), ["Arepas", "Empanadas"])
+        XCTAssertEqual(studio.voicePrompts[3].capturedAnswer, "Arepas, Empanadas")
+        XCTAssertFalse(studio.voicePrompts[3].capturedAnswer.localizedCaseInsensitiveContains("Tostones"))
+        XCTAssertFalse(studio.voicePrompts[3].capturedAnswer.localizedCaseInsensitiveContains("for sure"))
+    }
+
+    func testVoicePipelineEvalFormatsOwnerStoryForWebsiteCopy() {
+        let cleaned = VoicePromptAnswerInterpreter.interpret(
+            promptKind: .ownerStory,
+            promptIndex: 4,
+            extractedAnswer: "",
+            fallbackAnswer: "Um what makes us special is the atmosphere, the hospitality, the smell in the air."
+        )
+
+        XCTAssertEqual(cleaned, "The atmosphere, the hospitality, the smell in the air.")
+        XCTAssertFalse(cleaned.localizedCaseInsensitiveContains("um"))
+        XCTAssertFalse(cleaned.localizedCaseInsensitiveContains("what makes us special"))
+    }
+
+    func testVoicePipelineEvalHandlesImperfectEnglishProfileSentence() {
+        let extraction = TranscriptRestaurantExtractor.extract(
+            from: "My restaurant name Plata Catering. It does Venezuelan food in San Diego."
+        )
+
+        XCTAssertEqual(extraction.profile.name, "Plata Catering")
+        XCTAssertEqual(extraction.profile.cuisine, "Venezuelan restaurant")
+        XCTAssertEqual(extraction.profile.neighborhood, "San Diego")
+        XCTAssertEqual(extraction.promptAnswers[0], "Plata Catering")
+        XCTAssertEqual(extraction.promptAnswers[1], "Venezuelan restaurant in San Diego")
+    }
+
     func testApplyEditedCuisineLocationUpdatesBothFields() {
         var profile = RestaurantProfile.sample
         profile.cuisine = "American restaurant"

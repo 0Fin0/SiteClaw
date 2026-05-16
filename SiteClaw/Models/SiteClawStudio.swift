@@ -1463,8 +1463,10 @@ final class SiteClawStudio {
             capturedAnswer = hours
 
         case .featuredDishes:
-            if !extraction.profile.menuItems.isEmpty {
-                restaurant.menuItems = mergeMenuItems(extracted: extraction.profile.menuItems, existing: restaurant.menuItems)
+            let fallbackMenuItems = TranscriptRestaurantExtractor.followUpMenuItems(from: normalizedAnswer)
+            let extractedMenuItems = extraction.profile.menuItems.isEmpty ? fallbackMenuItems : extraction.profile.menuItems
+            if !extractedMenuItems.isEmpty {
+                restaurant.menuItems = mergeMenuItems(extracted: extractedMenuItems, existing: restaurant.menuItems)
                 capturedAnswer = restaurant.menuItems.map { TranscriptRestaurantExtractor.menuLabel(for: $0) }.joined(separator: ", ")
             } else {
                 capturedAnswer = normalizedAnswer
@@ -2729,7 +2731,7 @@ enum VoicePromptAnswerInterpreter {
     static func cleanStoryAnswer(_ answer: String) -> String {
         let candidate = VoiceTranscriptNormalizer.normalize(answer)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return candidate
+        let cleaned = candidate
             .replacingOccurrences(
                 of: #"^(?:what\s+makes\s+(?:us|this|our\s+restaurant)?\s+special\s+is|makes\s+us\s+special\s+is|our\s+story\s+is)\s+"#,
                 with: "",
@@ -2741,6 +2743,8 @@ enum VoicePromptAnswerInterpreter {
                 options: [.regularExpression, .caseInsensitive]
             )
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = cleaned.first else { return cleaned }
+        return String(first).uppercased() + cleaned.dropFirst()
     }
 }
 
@@ -2754,6 +2758,7 @@ struct AddressExtraction {
 enum MissingDetailAnswerExtractor {
     static func restaurantName(from text: String) -> String? {
         let patterns = [
+            #"\b(?:my\s+|the\s+)?restaurant\s+name\s+(?:is\s+)?([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|we\s+|we're\s+|serves?\s+|open\s+|in\s+)|$)"#,
             #"\b(?:the\s+)?name\s+of\s+(?:the\s+)?restaurant\s+is\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|we\s+|we're\s+|serves?\s+|open\s+|in\s+)|$)"#,
             #"\b(?:called|named|restaurant is|business is)\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|we\s+|we're\s+|serves?\s+|open\s+|in\s+)|$)"#,
             #"^([A-Za-z0-9&' .-]{2,80})$"#
@@ -3089,6 +3094,7 @@ enum TranscriptRestaurantExtractor {
 
     private static func extractName(from transcript: String) -> String {
         let patterns = [
+            #"\b(?:my\s+|the\s+)?restaurant\s+name\s+(?:is\s+)?([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|is\s+(?:a|an|family)|we\s+|we're\s+|open\s+|serve\s+|serves\s+|in\s+[A-Z])|$)"#,
             #"\b(?:the\s+)?name\s+of\s+(?:the\s+)?restaurant\s+is\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|is\s+(?:a|an|family)|we\s+|we're\s+|open\s+|serve\s+|serves\s+|in\s+[A-Z])|$)"#,
             #"\b(?:called|named)\s+([A-Za-z0-9&' .-]{2,80}?)(?=\.|,|\s+(?:it\s+is|it's|it’s|is\s+(?:a|an|family)|we\s+|we're\s+|open\s+|serve\s+|serves\s+|in\s+[A-Z])|$)"#,
             #"\b([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){1,5}\s+(?:Kitchen|Cafe|Coffee|Bakery|Grill|Restaurant|Diner|Bistro|Taqueria|Pizzeria|Bar))\b"#,
@@ -3111,6 +3117,7 @@ enum TranscriptRestaurantExtractor {
             ("salvadorian", "Salvadorian"),
             ("salvadoran", "Salvadorian"),
             ("peruvian", "Peruvian"),
+            ("venezuelan", "Venezuelan"),
             ("argentinian", "Argentinian"),
             ("argentine", "Argentinian"),
             ("vietnamese", "Vietnamese"),
@@ -3242,6 +3249,10 @@ enum TranscriptRestaurantExtractor {
         guard lowercased.contains("monday through saturday")
                 || lowercased.contains("monday to saturday")
                 || lowercased.contains("mon-sat")
+                || lowercased.contains("tuesday through saturday")
+                || lowercased.contains("tuesday to saturday")
+                || lowercased.contains("tue-sat")
+                || lowercased.contains("tues-sat")
         else {
             return candidate
         }
@@ -3328,6 +3339,18 @@ enum TranscriptRestaurantExtractor {
     }
 
     private static let knownMenuPhrases: [(phrase: String, canonical: String)] = [
+        ("lomo saltado", "Lomo Saltado"),
+        ("arepas", "Arepas"),
+        ("arepa", "Arepas"),
+        ("tostones", "Tostones"),
+        ("tostone", "Tostones"),
+        ("empanadas", "Empanadas"),
+        ("empanada", "Empanadas"),
+        ("pupusas", "Pupusas"),
+        ("pupusa", "Pupusas"),
+        ("ceviche", "Ceviche"),
+        ("tamales", "Tamales"),
+        ("tamal", "Tamales"),
         ("house pho", "House Pho"),
         ("pho", "Pho"),
         ("rice bowls", "Rice Bowls"),
